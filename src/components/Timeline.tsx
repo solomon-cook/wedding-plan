@@ -1,6 +1,7 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import {
-  formatMinutesAsTime,
+  formatMinutesAsDay,
+  formatTimelineTick,
   getHourTicks,
   getPositionedEntries,
   getTimelineRowCount,
@@ -16,13 +17,10 @@ type TimelineProps = {
   scale: TimelineScale;
   scrollLeft: number;
   selectedEntryId: string | null;
-  selectedEntry: TimelineEntry | null;
   title: string;
   variant: "main" | "secondary";
-  onEditEntry: () => void;
   onEntryOpen: (entry: TimelineEntry) => void;
-  onFocusItem: (item: string) => void;
-  onFocusPerson: (person: string) => void;
+  onCenteredEntryChange?: (entry: TimelineEntry) => void;
   onScrollLeftChange: (scrollLeft: number) => void;
 };
 
@@ -30,9 +28,11 @@ type TimelineCanvasStyle = CSSProperties & {
   "--timeline-center": string;
 };
 
-type TimelineDetailStyle = CSSProperties & {
-  "--entry-color": string;
-};
+const LABEL_MAX_WIDTH = 170;
+const LABEL_MIN_WIDTH = 24;
+const LABEL_CHARACTER_WIDTH = 5.8;
+const LABEL_HORIZONTAL_PADDING = 8;
+const LABEL_OVERLAP_BUFFER = 8;
 
 export function Timeline({
   entries,
@@ -41,17 +41,15 @@ export function Timeline({
   scale,
   scrollLeft,
   selectedEntryId,
-  selectedEntry,
   title,
   variant,
-  onEditEntry,
   onEntryOpen,
-  onFocusItem,
-  onFocusPerson,
+  onCenteredEntryChange,
   onScrollLeftChange,
 }: TimelineProps): JSX.Element {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const applyingScrollRef = useRef(false);
+  const [hoveredEntryId, setHoveredEntryId] = useState<string | null>(null);
   const [viewportWidth, setViewportWidth] = useState(0);
   const positionedEntries = useMemo(() => getPositionedEntries(entries, scale), [entries, scale]);
   const positionedGhostEntries = useMemo(
@@ -63,37 +61,96 @@ export function Timeline({
     getTimelineRowCount(positionedGhostEntries),
   );
   const width = getTimelineWidth(scale);
-  const laneSpread = Math.ceil(Math.max(0, rowCount - 1) / 2) * 40;
-  const centerY = variant === "main" ? 188 : 118;
-  const selectedPositionedEntry = selectedEntry
-    ? [...positionedEntries, ...positionedGhostEntries].find(
-        (positionedEntry) => positionedEntry.entry.id === selectedEntry.id,
-      ) ?? null
-    : null;
-  const hasOpenDetail = Boolean(selectedPositionedEntry);
-  const lowerPadding = hasOpenDetail ? 126 : variant === "main" ? 104 : 78;
+  const laneSpread = Math.ceil(rowCount / 2) * 56;
+  const centerY = variant === "main" ? 156 : 122;
+  const lowerPadding = variant === "main" ? 104 : 78;
   const height =
     variant === "main"
-      ? Math.max(380, centerY + laneSpread + lowerPadding)
+      ? Math.max(300, centerY + laneSpread + lowerPadding)
       : Math.max(236, centerY + laneSpread + lowerPadding);
   const canvasStyle: TimelineCanvasStyle = {
     "--timeline-center": `${centerY}px`,
     width: `${width}px`,
     height: `${height}px`,
   };
-  const detailStyle: TimelineDetailStyle | undefined = selectedPositionedEntry
-    ? {
-        "--entry-color": selectedPositionedEntry.entry.color ?? "#6f8fa3",
-        left: `${selectedPositionedEntry.left}px`,
+  const viewportCenter = scrollLeft + (viewportWidth || 1) / 2;
+  const visibleDayLabel = formatMinutesAsDay(
+    scale.startMinute + Math.max(0, scrollLeft) / scale.pixelsPerMinute,
+  );
+  const labelVisibility = useMemo(() => {
+    const visibleEntryIds = new Set<string>();
+
+    if (positionedEntries.length === 0) {
+      return visibleEntryIds;
+    }
+
+    const labelBounds = positionedEntries
+      .map((positionedEntry) => {
+        const distance = Math.abs(positionedEntry.left - viewportCenter);
+        const influence = Math.max(160, (viewportWidth || 1) * 0.34);
+        const closeness = Math.max(0, 1 - distance / influence);
+        const labelEmphasis = 0.52 + closeness * 0.9;
+        const estimatedTextWidth = Math.min(
+          LABEL_MAX_WIDTH,
+          Math.max(
+            LABEL_MIN_WIDTH,
+            positionedEntry.entry.title.length * LABEL_CHARACTER_WIDTH + LABEL_HORIZONTAL_PADDING,
+          ),
+        );
+        const renderedWidth = estimatedTextWidth * labelEmphasis;
+        const halfWidth = renderedWidth / 2 + LABEL_OVERLAP_BUFFER;
+
+        return {
+          entryId: positionedEntry.entry.id,
+          left: positionedEntry.left,
+          max: positionedEntry.left + halfWidth,
+          min: positionedEntry.left - halfWidth,
+        };
+      })
+      .sort((first, second) => first.min - second.min);
+
+    let currentGroup: typeof labelBounds = [];
+    let currentMax = Number.NEGATIVE_INFINITY;
+
+    function commitGroup(group: typeof labelBounds): void {
+      if (group.length === 0) {
+        return;
       }
-    : undefined;
-  const detailEdgeClass = selectedPositionedEntry
-    ? selectedPositionedEntry.left < 220
-      ? "timeline-detail--edge-start"
-      : selectedPositionedEntry.left > width - 220
-        ? "timeline-detail--edge-end"
-        : ""
-    : "";
+
+      if (group.length === 1) {
+        visibleEntryIds.add(group[0].entryId);
+        return;
+      }
+
+      const hoveredInGroup = hoveredEntryId
+        ? group.find((entry) => entry.entryId === hoveredEntryId)
+        : undefined;
+      const visibleEntry =
+        hoveredInGroup ??
+        group.reduce((closest, candidate) => {
+          const closestDistance = Math.abs(closest.left - viewportCenter);
+          const candidateDistance = Math.abs(candidate.left - viewportCenter);
+          return candidateDistance < closestDistance ? candidate : closest;
+        });
+
+      visibleEntryIds.add(visibleEntry.entryId);
+    }
+
+    for (const labelBound of labelBounds) {
+      if (currentGroup.length === 0 || labelBound.min <= currentMax) {
+        currentGroup.push(labelBound);
+        currentMax = Math.max(currentMax, labelBound.max);
+      } else {
+        commitGroup(currentGroup);
+        currentGroup = [labelBound];
+        currentMax = labelBound.max;
+      }
+    }
+
+    commitGroup(currentGroup);
+
+    return visibleEntryIds;
+  }, [hoveredEntryId, positionedEntries, viewportCenter, viewportWidth]);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -136,6 +193,35 @@ export function Timeline({
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    if (!viewportWidth || !onCenteredEntryChange) {
+      return;
+    }
+
+    const candidates = [...positionedEntries, ...positionedGhostEntries];
+    if (candidates.length === 0) {
+      return;
+    }
+
+    const viewportCenter = scrollLeft + viewportWidth / 2;
+    const centeredEntry = candidates.reduce((closest, candidate) => {
+      const closestDistance = Math.abs(closest.left - viewportCenter);
+      const candidateDistance = Math.abs(candidate.left - viewportCenter);
+      return candidateDistance < closestDistance ? candidate : closest;
+    });
+
+    if (centeredEntry.entry.id !== selectedEntryId) {
+      onCenteredEntryChange(centeredEntry.entry);
+    }
+  }, [
+    onCenteredEntryChange,
+    positionedEntries,
+    positionedGhostEntries,
+    scrollLeft,
+    selectedEntryId,
+    viewportWidth,
+  ]);
+
   function handleScroll(event: React.UIEvent<HTMLDivElement>): void {
     if (applyingScrollRef.current) {
       return;
@@ -146,7 +232,6 @@ export function Timeline({
 
   function getLabelEmphasis(entryLeft: number): number {
     const effectiveViewportWidth = viewportWidth || 1;
-    const viewportCenter = scrollLeft + effectiveViewportWidth / 2;
     const distance = Math.abs(entryLeft - viewportCenter);
     const influence = Math.max(160, effectiveViewportWidth * 0.34);
     const closeness = Math.max(0, 1 - distance / influence);
@@ -166,6 +251,7 @@ export function Timeline({
 
   return (
     <section className={`timeline-panel timeline-panel--${variant}`} aria-label={title}>
+      <div className="timeline-day-heading" aria-hidden="true">{visibleDayLabel}</div>
       <div
         className="timeline-scroll"
         ref={scrollRef}
@@ -178,59 +264,16 @@ export function Timeline({
           <div className="time-ruler" aria-hidden="true">
             {getHourTicks(scale).map((minute) => (
               <div
-                className="time-tick"
+                className={`time-tick ${minute % (24 * 60) === 0 ? "time-tick--day" : ""}`}
                 key={minute}
                 style={{ left: `${(minute - scale.startMinute) * scale.pixelsPerMinute}px` }}
               >
-                <span>{formatMinutesAsTime(minute)}</span>
+                <span>{formatTimelineTick(minute)}</span>
               </div>
             ))}
           </div>
 
           <div className="timeline-baseline" aria-hidden="true" />
-
-          {selectedEntry && selectedPositionedEntry && detailStyle ? (
-            <div
-              className={`timeline-detail ${detailEdgeClass}`}
-              style={detailStyle}
-              aria-live="polite"
-            >
-              <strong>{selectedEntry.title}</strong>
-              <span>
-                {selectedEntry.startTime}
-                {selectedEntry.endTime ? `-${selectedEntry.endTime}` : ""}
-                {selectedEntry.location ? ` · ${selectedEntry.location}` : ""}
-              </span>
-              {selectedEntry.description ? (
-                <p>{selectedEntry.description}</p>
-              ) : null}
-              <div className="timeline-entry__actions" aria-label={`${selectedEntry.title} details`}>
-                {selectedEntry.people.map((person) => (
-                  <button
-                    className="detail-chip"
-                    key={`${selectedEntry.id}-person-${person}`}
-                    type="button"
-                    onClick={() => onFocusPerson(person)}
-                  >
-                    {person}
-                  </button>
-                ))}
-                {selectedEntry.items.map((item) => (
-                  <button
-                    className="detail-chip detail-chip--item"
-                    key={`${selectedEntry.id}-item-${item}`}
-                    type="button"
-                    onClick={() => onFocusItem(item)}
-                  >
-                    {item}
-                  </button>
-                ))}
-                <button className="detail-chip detail-chip--edit" type="button" onClick={onEditEntry}>
-                  Edit
-                </button>
-              </div>
-            </div>
-          ) : null}
 
           {positionedGhostEntries.map((positionedEntry) => (
             <TimelineEntryCard
@@ -240,11 +283,14 @@ export function Timeline({
               centerY={centerY}
               positionedEntry={positionedEntry}
               labelEmphasis={getLabelEmphasis(positionedEntry.left)}
+              showLabel={false}
               timelineWidth={width}
               onEntryOpen={(entry) => {
                 onEntryOpen(entry);
                 centerEntry(positionedEntry.left);
               }}
+              onEntryHoverEnd={() => setHoveredEntryId(null)}
+              onEntryHoverStart={setHoveredEntryId}
             />
           ))}
 
@@ -255,11 +301,14 @@ export function Timeline({
               centerY={centerY}
               positionedEntry={positionedEntry}
               labelEmphasis={getLabelEmphasis(positionedEntry.left)}
+              showLabel={labelVisibility.has(positionedEntry.entry.id)}
               timelineWidth={width}
               onEntryOpen={(entry) => {
                 onEntryOpen(entry);
                 centerEntry(positionedEntry.left);
               }}
+              onEntryHoverEnd={() => setHoveredEntryId(null)}
+              onEntryHoverStart={setHoveredEntryId}
             />
           ))}
 

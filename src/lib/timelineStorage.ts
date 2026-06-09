@@ -1,4 +1,5 @@
 import { seedTimeline } from "../data/seedTimeline";
+import { normaliseEntryDate } from "./timeScale";
 import {
   entryStatuses,
   entryTypes,
@@ -100,6 +101,7 @@ function normaliseEntry(value: unknown): TimelineEntry | null {
     id: value.id,
     title: value.title,
     type,
+    date: normaliseEntryDate(typeof value.date === "string" ? value.date : undefined),
     startTime: value.startTime,
     endTime: typeof value.endTime === "string" ? value.endTime : undefined,
     durationMinutes:

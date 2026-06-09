@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import type { PositionedEntry, TimelineEntry } from "../types/timeline";
+import { formatEntryDateTime } from "../lib/timeScale";
 
 type TimelineEntryCardProps = {
   centerY: number;
@@ -7,23 +8,16 @@ type TimelineEntryCardProps = {
   isSelected: boolean;
   labelEmphasis: number;
   positionedEntry: PositionedEntry;
+  showLabel: boolean;
   timelineWidth: number;
   onEntryOpen: (entry: TimelineEntry) => void;
+  onEntryHoverEnd: () => void;
+  onEntryHoverStart: (entryId: string) => void;
 };
 
 type EntryStyle = CSSProperties & {
-  "--entry-color": string;
   "--label-emphasis": string;
 };
-
-function getLaneOffset(row: number): number {
-  if (row === 0) {
-    return 0;
-  }
-
-  const distance = Math.ceil(row / 2) * 40;
-  return row % 2 === 1 ? -distance : distance;
-}
 
 export function TimelineEntryCard({
   centerY,
@@ -31,23 +25,21 @@ export function TimelineEntryCard({
   isSelected,
   labelEmphasis,
   positionedEntry,
+  showLabel,
   timelineWidth,
   onEntryOpen,
+  onEntryHoverEnd,
+  onEntryHoverStart,
 }: TimelineEntryCardProps): JSX.Element {
   const { entry } = positionedEntry;
-  const laneOffset = getLaneOffset(positionedEntry.row);
-  const top = centerY + laneOffset;
-  const guideStyle: CSSProperties = {
-    top: `${Math.min(0, -laneOffset)}px`,
-    height: `${Math.abs(laneOffset)}px`,
-  };
+  const tags = [...entry.people, ...entry.items];
+  const visibleTags = tags.slice(0, 4);
+  const hiddenTagCount = tags.length - visibleTags.length;
   const style: EntryStyle = {
-    "--entry-color": entry.color ?? "#6f8fa3",
     "--label-emphasis": String(labelEmphasis),
     left: `${positionedEntry.left}px`,
-    top: `${top}px`,
+    top: `${centerY}px`,
   };
-  const placementClass = laneOffset > 0 ? "timeline-entry--below" : "timeline-entry--above";
   const edgeClass =
     positionedEntry.left < 220
       ? "timeline-entry--edge-start"
@@ -56,7 +48,7 @@ export function TimelineEntryCard({
         : "";
   const ariaLabel = [
     entry.title,
-    entry.startTime,
+    formatEntryDateTime(entry),
     entry.location,
     entry.people.length ? `People: ${entry.people.join(", ")}` : "",
     entry.items.length ? `Items: ${entry.items.join(", ")}` : "",
@@ -66,26 +58,36 @@ export function TimelineEntryCard({
 
   return (
     <div
-      className={`timeline-entry ${placementClass} ${edgeClass} ${isGhost ? "timeline-entry--ghost" : ""} ${isSelected ? "timeline-entry--selected" : ""}`}
+      className={`timeline-entry ${edgeClass} ${isGhost ? "timeline-entry--ghost" : ""} ${isSelected ? "timeline-entry--selected" : ""} ${showLabel ? "" : "timeline-entry--label-hidden"}`}
       style={style}
     >
-      {laneOffset !== 0 ? <span className="timeline-entry__guide" style={guideStyle} /> : null}
       <button
         className="timeline-dot"
         type="button"
         aria-label={ariaLabel}
         title={entry.title}
         onClick={() => onEntryOpen(entry)}
+        onMouseEnter={() => onEntryHoverStart(entry.id)}
+        onMouseLeave={onEntryHoverEnd}
+        onPointerEnter={() => onEntryHoverStart(entry.id)}
+        onPointerLeave={onEntryHoverEnd}
       >
       </button>
       <span className="timeline-entry__label">{entry.title}</span>
-      <div className="timeline-entry__tooltip" role="tooltip">
-        <strong>{entry.title}</strong>
-        <span>
-          {entry.startTime}
-          {entry.location ? ` · ${entry.location}` : ""}
-        </span>
-      </div>
+      {tags.length > 0 ? (
+        <div className="timeline-entry__tags" aria-hidden="true">
+          {visibleTags.map((tag) => (
+            <span className="timeline-entry__tag" key={`${entry.id}-${tag}`}>
+              {tag}
+            </span>
+          ))}
+          {hiddenTagCount > 0 ? (
+            <span className="timeline-entry__tag timeline-entry__tag--more">
+              +{hiddenTagCount}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

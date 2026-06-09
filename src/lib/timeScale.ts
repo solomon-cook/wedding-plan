@@ -1,10 +1,30 @@
 import type { PositionedEntry, TimelineEntry, TimelineScale } from "../types/timeline";
 
-const DEFAULT_START_MINUTE = 8 * 60;
-const DEFAULT_END_MINUTE = 24 * 60;
+export const WEDDING_DATE = "2026-07-11";
+export const TIMELINE_START_DATE = "2026-07-09";
+export const TIMELINE_LAST_ENTRY_DATE = "2026-07-12";
+export const TIMELINE_END_DATE = "2026-07-13";
+
+const MINUTES_PER_DAY = 24 * 60;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_DURATION_MINUTES = 15;
 const DEFAULT_PIXELS_PER_MINUTE = 2.8;
 const MIN_ENTRY_WIDTH = 42;
+const MIN_VISUAL_GAP_PX = 96;
+const TIMELINE_START_MINUTE = getDateOffsetMinutes(TIMELINE_START_DATE);
+const TIMELINE_END_MINUTE = getDateOffsetMinutes(TIMELINE_END_DATE);
+
+function getDateOffsetMinutes(date: string): number {
+  const [year, month, day] = date.split("-").map(Number);
+  const [startYear, startMonth, startDay] = TIMELINE_START_DATE.split("-").map(Number);
+  const dateTime = Date.UTC(year, month - 1, day);
+  const startTime = Date.UTC(startYear, startMonth - 1, startDay);
+  return Math.round((dateTime - startTime) / 60000);
+}
+
+export function normaliseEntryDate(date?: string): string {
+  return date && DATE_PATTERN.test(date) ? date : WEDDING_DATE;
+}
 
 export function parseTimeToMinutes(time?: string): number | null {
   if (!time) {
@@ -22,15 +42,46 @@ export function parseTimeToMinutes(time?: string): number | null {
 }
 
 export function formatMinutesAsTime(minutes: number): string {
-  const dayMinutes = ((minutes % 1440) + 1440) % 1440;
+  const dayMinutes = ((minutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
   const hours = Math.floor(dayMinutes / 60);
   const mins = dayMinutes % 60;
   return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
 }
 
+export function formatMinutesAsDay(minutes: number): string {
+  const date = new Date(Date.UTC(2026, 6, 9) + minutes * 60000);
+  return new Intl.DateTimeFormat("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  }).format(date);
+}
+
+export function formatTimelineTick(minutes: number): string {
+  if (minutes % MINUTES_PER_DAY === 0) {
+    return formatMinutesAsDay(minutes);
+  }
+
+  return formatMinutesAsTime(minutes);
+}
+
+export function formatEntryDate(entry: TimelineEntry): string {
+  return formatMinutesAsDay(getDateOffsetMinutes(normaliseEntryDate(entry.date)));
+}
+
+export function formatEntryDateTime(entry: TimelineEntry): string {
+  return `${formatEntryDate(entry)} · ${entry.startTime}`;
+}
+
+export function getEntryStartMinute(entry: TimelineEntry): number {
+  const time = parseTimeToMinutes(entry.startTime);
+  return getDateOffsetMinutes(normaliseEntryDate(entry.date)) + (time ?? 0);
+}
+
 export function getEntryDurationMinutes(entry: TimelineEntry): number {
-  const start = parseTimeToMinutes(entry.startTime);
-  const end = parseTimeToMinutes(entry.endTime);
+  const start = getEntryStartMinute(entry);
+  const endTime = parseTimeToMinutes(entry.endTime);
+  const end = endTime === null ? null : getDateOffsetMinutes(normaliseEntryDate(entry.date)) + endTime;
 
   if (start !== null && end !== null && end > start) {
     return end - start;
@@ -44,25 +95,14 @@ export function getEntryDurationMinutes(entry: TimelineEntry): number {
 }
 
 export function getEntryEndMinute(entry: TimelineEntry): number {
-  const start = parseTimeToMinutes(entry.startTime) ?? DEFAULT_START_MINUTE;
+  const start = getEntryStartMinute(entry);
   return start + getEntryDurationMinutes(entry);
 }
 
-export function createTimelineScale(entries: TimelineEntry[]): TimelineScale {
-  const validStarts = entries
-    .map((entry) => parseTimeToMinutes(entry.startTime))
-    .filter((minute): minute is number => minute !== null);
-  const validEnds = entries.map(getEntryEndMinute);
-
-  const firstStart = validStarts.length > 0 ? Math.min(...validStarts) : DEFAULT_START_MINUTE;
-  const lastEnd = validEnds.length > 0 ? Math.max(...validEnds) : DEFAULT_END_MINUTE;
-
-  const paddedStart = Math.min(DEFAULT_START_MINUTE, firstStart - 30);
-  const paddedEnd = Math.max(DEFAULT_END_MINUTE, lastEnd + 45);
-
+export function createTimelineScale(): TimelineScale {
   return {
-    startMinute: Math.max(0, Math.floor(paddedStart / 60) * 60),
-    endMinute: Math.min(24 * 60, Math.ceil(paddedEnd / 60) * 60),
+    startMinute: TIMELINE_START_MINUTE,
+    endMinute: TIMELINE_END_MINUTE,
     pixelsPerMinute: DEFAULT_PIXELS_PER_MINUTE,
   };
 }
@@ -73,14 +113,14 @@ export function getTimelineWidth(scale: TimelineScale): number {
 
 export function getHourTicks(scale: TimelineScale): number[] {
   const ticks: number[] = [];
-  for (let minute = scale.startMinute; minute <= scale.endMinute; minute += 60) {
+  for (let minute = scale.startMinute; minute < scale.endMinute; minute += 60) {
     ticks.push(minute);
   }
   return ticks;
 }
 
-export function getLeftForTime(time: string, scale: TimelineScale): number {
-  const minute = parseTimeToMinutes(time) ?? scale.startMinute;
+export function getLeftForEntry(entry: TimelineEntry, scale: TimelineScale): number {
+  const minute = getEntryStartMinute(entry);
   return Math.max(0, (minute - scale.startMinute) * scale.pixelsPerMinute);
 }
 
@@ -89,20 +129,21 @@ export function getPositionedEntries(
   scale: TimelineScale,
 ): PositionedEntry[] {
   const rowsEnd: number[] = [];
+  const minVisualGapMinutes = MIN_VISUAL_GAP_PX / scale.pixelsPerMinute;
 
   return [...entries]
     .sort((a, b) => {
       const startDelta =
-        (parseTimeToMinutes(a.startTime) ?? 0) - (parseTimeToMinutes(b.startTime) ?? 0);
+        getEntryStartMinute(a) - getEntryStartMinute(b);
       return startDelta || a.title.localeCompare(b.title);
     })
     .map((entry) => {
-      const startMinute = parseTimeToMinutes(entry.startTime) ?? scale.startMinute;
+      const startMinute = getEntryStartMinute(entry);
       const endMinute = getEntryEndMinute(entry);
       const row = rowsEnd.findIndex((rowEndMinute) => rowEndMinute <= startMinute);
       const assignedRow = row === -1 ? rowsEnd.length : row;
 
-      rowsEnd[assignedRow] = endMinute;
+      rowsEnd[assignedRow] = Math.max(endMinute, startMinute + minVisualGapMinutes);
 
       return {
         entry,

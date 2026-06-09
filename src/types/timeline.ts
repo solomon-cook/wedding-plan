@@ -24,6 +24,7 @@ export type TimelineEntry = {
   id: string;
   title: string;
   type: EntryType;
+  date?: string;
   startTime: string;
   endTime?: string;
   durationMinutes?: number;

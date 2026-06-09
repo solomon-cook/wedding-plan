@@ -1,6 +1,13 @@
 import { X, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { parseTimeToMinutes } from "../lib/timeScale";
+import {
+  TIMELINE_LAST_ENTRY_DATE,
+  TIMELINE_START_DATE,
+  WEDDING_DATE,
+  formatEntryDateTime,
+  normaliseEntryDate,
+  parseTimeToMinutes,
+} from "../lib/timeScale";
 import {
   entryStatuses,
   entryTypes,
@@ -25,6 +32,7 @@ type EntryFormProps = {
 type FormState = {
   title: string;
   type: EntryType;
+  date: string;
   startTime: string;
   endTime: string;
   durationMinutes: string;
@@ -42,6 +50,7 @@ type FormState = {
 const emptyForm: FormState = {
   title: "",
   type: "task",
+  date: WEDDING_DATE,
   startTime: "10:00",
   endTime: "",
   durationMinutes: "30",
@@ -86,6 +95,7 @@ function getInitialForm(entry: TimelineEntry | null, mode: EntryFormMode): FormS
   return {
     title: entry.title,
     type: entry.type,
+    date: normaliseEntryDate(entry.date),
     startTime: entry.startTime,
     endTime: entry.endTime ?? "",
     durationMinutes: entry.endTime ? "" : String(entry.durationMinutes ?? ""),
@@ -159,6 +169,7 @@ export function EntryForm({
       id,
       title,
       type: form.type,
+      date: normaliseEntryDate(form.date),
       startTime: form.startTime,
       endTime: form.endTime || undefined,
       durationMinutes: form.endTime ? undefined : durationMinutes,
@@ -263,7 +274,7 @@ export function EntryForm({
               .filter((candidate) => candidate.id !== entry?.id && candidate.timelineRole === "main")
               .map((candidate) => (
                 <option key={candidate.id} value={candidate.id}>
-                  {candidate.startTime} · {candidate.title}
+                  {formatEntryDateTime(candidate)} · {candidate.title}
                 </option>
               ))}
           </select>
@@ -272,6 +283,16 @@ export function EntryForm({
 
       <div className="form-grid">
         <label>
+          <span>Date</span>
+          <input
+            min={TIMELINE_START_DATE}
+            max={TIMELINE_LAST_ENTRY_DATE}
+            type="date"
+            value={form.date}
+            onChange={(event) => updateField("date", event.currentTarget.value)}
+          />
+        </label>
+        <label>
           <span>Start</span>
           <input
             type="time"
@@ -279,6 +300,9 @@ export function EntryForm({
             onChange={(event) => updateField("startTime", event.currentTarget.value)}
           />
         </label>
+      </div>
+
+      <div className="form-grid">
         <label>
           <span>End</span>
           <input
@@ -287,9 +311,6 @@ export function EntryForm({
             onChange={(event) => updateField("endTime", event.currentTarget.value)}
           />
         </label>
-      </div>
-
-      <div className="form-grid">
         <label>
           <span>Duration</span>
           <input
@@ -362,7 +383,7 @@ export function EntryForm({
             .filter((candidate) => candidate.id !== entry?.id)
             .map((candidate) => (
               <option key={candidate.id} value={candidate.id}>
-                {candidate.startTime} · {candidate.title}
+                {formatEntryDateTime(candidate)} · {candidate.title}
               </option>
             ))}
         </select>

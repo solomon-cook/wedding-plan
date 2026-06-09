@@ -1,4 +1,5 @@
 import type { Focus, SearchResult, TimelineEntry } from "../types/timeline";
+import { formatEntryDateTime, getEntryStartMinute } from "./timeScale";
 
 function normalise(value: string): string {
   return value.trim().toLowerCase();
@@ -9,7 +10,10 @@ function includesQuery(value: string | undefined, query: string): boolean {
 }
 
 export function sortEntriesByStart(entries: TimelineEntry[]): TimelineEntry[] {
-  return [...entries].sort((a, b) => a.startTime.localeCompare(b.startTime));
+  return [...entries].sort((a, b) => {
+    const startDelta = getEntryStartMinute(a) - getEntryStartMinute(b);
+    return startDelta || a.title.localeCompare(b.title);
+  });
 }
 
 export function isMainTimelineEntry(entry: TimelineEntry): boolean {
@@ -138,7 +142,7 @@ export function getSearchResults(entries: TimelineEntry[], rawQuery: string): Se
       kind: "entry",
       label: entry.title,
       entryId: entry.id,
-      meta: [entry.startTime, entry.location].filter(Boolean).join(" · "),
+      meta: [formatEntryDateTime(entry), entry.location].filter(Boolean).join(" · "),
     }));
 
   return [...peopleResults, ...itemResults, ...entryResults];

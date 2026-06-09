@@ -9,7 +9,7 @@ import {
   getGhostEntries,
   getMainTimelineEntries,
 } from "./lib/timelineFilters";
-import { getLeftForTime, createTimelineScale } from "./lib/timeScale";
+import { getLeftForEntry, getTimelineWidth, createTimelineScale } from "./lib/timeScale";
 import {
   loadTimelineEntries,
   parseImportedTimeline,
@@ -22,12 +22,38 @@ type ActiveForm =
   | { mode: "create" }
   | { mode: "edit"; entryId: string };
 
+const INITIAL_CENTER_ENTRY_ID = "ceremony";
+
+function getInitialSelectedEntryId(entries: TimelineEntry[]): string | null {
+  return entries.some((entry) => entry.id === INITIAL_CENTER_ENTRY_ID)
+    ? INITIAL_CENTER_ENTRY_ID
+    : null;
+}
+
+function getInitialScrollLeft(entries: TimelineEntry[]): number {
+  const scale = createTimelineScale();
+  const centeredEntry = entries.find((entry) => entry.id === INITIAL_CENTER_ENTRY_ID);
+
+  if (!centeredEntry) {
+    return 0;
+  }
+
+  const viewportWidth =
+    typeof window === "undefined" ? 0 : Math.max(0, window.innerWidth - 56);
+  const maxScrollLeft = Math.max(0, getTimelineWidth(scale) - viewportWidth);
+  const centeredScrollLeft = getLeftForEntry(centeredEntry, scale) - viewportWidth / 2;
+
+  return Math.min(maxScrollLeft, Math.max(0, centeredScrollLeft));
+}
+
 export function App(): JSX.Element {
   const [entries, setEntries] = useState<TimelineEntry[]>(() => loadTimelineEntries());
   const [focus, setFocus] = useState<Focus>({ kind: "all" });
-  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(() =>
+    getInitialSelectedEntryId(entries),
+  );
   const [activeForm, setActiveForm] = useState<ActiveForm | null>(null);
-  const [scrollLeft, setScrollLeft] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(() => getInitialScrollLeft(entries));
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -35,7 +61,7 @@ export function App(): JSX.Element {
     saveTimelineEntries(entries);
   }, [entries]);
 
-  const scale = useMemo(() => createTimelineScale(entries), [entries]);
+  const scale = useMemo(() => createTimelineScale(), []);
   const mainEntries = useMemo(() => getMainTimelineEntries(entries), [entries]);
   const focusedEntries = useMemo(() => getFocusedEntries(entries, focus), [entries, focus]);
   const ghostEntries = useMemo(() => getGhostEntries(entries, focus), [entries, focus]);
@@ -49,13 +75,19 @@ export function App(): JSX.Element {
       : null;
 
   function jumpToEntry(entry: TimelineEntry): void {
-    setScrollLeft(Math.max(0, getLeftForTime(entry.startTime, scale) - 160));
+    setScrollLeft(Math.max(0, getLeftForEntry(entry, scale) - 160));
   }
 
   function openEntry(entry: TimelineEntry): void {
     setSelectedEntryId(entry.id);
     setFocus({ kind: "entry", entryId: entry.id });
     setActiveForm(null);
+  }
+
+  function selectCenteredEntry(entry: TimelineEntry): void {
+    setSelectedEntryId((currentEntryId) => (
+      currentEntryId === entry.id ? currentEntryId : entry.id
+    ));
   }
 
   function focusPerson(person: string): void {
@@ -131,9 +163,9 @@ export function App(): JSX.Element {
     const resetEntries = resetTimelineEntries();
     setEntries(resetEntries);
     setFocus({ kind: "all" });
-    setSelectedEntryId(null);
+    setSelectedEntryId(getInitialSelectedEntryId(resetEntries));
     setActiveForm(null);
-    setScrollLeft(0);
+    setScrollLeft(getInitialScrollLeft(resetEntries));
     setImportMessage("Reset to seed data");
   }
 
@@ -196,7 +228,7 @@ export function App(): JSX.Element {
               setActiveForm(null);
             }}
           >
-            Wedding day
+            Rebecca & Solomon&apos;s Wedding Timeline
           </button>
         </div>
 
@@ -276,6 +308,7 @@ export function App(): JSX.Element {
         onEntryOpen={openEntry}
         onFocusItem={focusItem}
         onFocusPerson={focusPerson}
+        onCenteredEntryChange={selectCenteredEntry}
         onScrollLeftChange={setScrollLeft}
       />
 

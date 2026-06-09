@@ -1,5 +1,6 @@
 import { Timeline } from "./Timeline";
 import type { Focus, TimelineEntry, TimelineScale } from "../types/timeline";
+import { formatEntryDate } from "../lib/timeScale";
 
 type TimelineShellProps = {
   focusedEntries: TimelineEntry[];
@@ -14,6 +15,7 @@ type TimelineShellProps = {
   onEntryOpen: (entry: TimelineEntry) => void;
   onFocusItem: (item: string) => void;
   onFocusPerson: (person: string) => void;
+  onCenteredEntryChange: (entry: TimelineEntry) => void;
   onScrollLeftChange: (scrollLeft: number) => void;
 };
 
@@ -30,6 +32,7 @@ export function TimelineShell({
   onEntryOpen,
   onFocusItem,
   onFocusPerson,
+  onCenteredEntryChange,
   onScrollLeftChange,
 }: TimelineShellProps): JSX.Element {
   const shouldShowSecondary =
@@ -40,6 +43,48 @@ export function TimelineShell({
 
   return (
     <main className="workspace">
+      <div className={`timeline-detail ${selectedEntry ? "" : "timeline-detail--empty"}`} aria-live="polite">
+        {selectedEntry ? (
+          <>
+            <strong>{selectedEntry.title}</strong>
+            <span>
+              {formatEntryDate(selectedEntry)} ·{" "}
+              {selectedEntry.startTime}
+              {selectedEntry.endTime ? `-${selectedEntry.endTime}` : ""}
+              {selectedEntry.location ? ` · ${selectedEntry.location}` : ""}
+            </span>
+            {selectedEntry.description ? (
+              <p>{selectedEntry.description}</p>
+            ) : null}
+            <div className="timeline-detail__links" aria-label={`${selectedEntry.title} details`}>
+              {selectedEntry.people.map((person) => (
+                <button
+                  className="detail-link"
+                  key={`${selectedEntry.id}-person-${person}`}
+                  type="button"
+                  onClick={() => onFocusPerson(person)}
+                >
+                  {person}
+                </button>
+              ))}
+              {selectedEntry.items.map((item) => (
+                <button
+                  className="detail-link"
+                  key={`${selectedEntry.id}-item-${item}`}
+                  type="button"
+                  onClick={() => onFocusItem(item)}
+                >
+                  {item}
+                </button>
+              ))}
+              <button className="detail-link detail-link--edit" type="button" onClick={onEditSelected}>
+                Edit
+              </button>
+            </div>
+          </>
+        ) : null}
+      </div>
+
       <Timeline
         entries={mainEntries}
         emptyMessage="No entries"
@@ -48,31 +93,28 @@ export function TimelineShell({
         scale={scale}
         scrollLeft={scrollLeft}
         selectedEntryId={selectedEntry?.id ?? null}
-        selectedEntry={selectedEntry}
         title="Main timeline"
-        onEditEntry={onEditSelected}
         onEntryOpen={onEntryOpen}
-        onFocusItem={onFocusItem}
-        onFocusPerson={onFocusPerson}
+        onCenteredEntryChange={shouldShowSecondary ? undefined : onCenteredEntryChange}
         onScrollLeftChange={onScrollLeftChange}
       />
 
       {shouldShowSecondary ? (
-        <Timeline
-          entries={focusedEntries}
-          emptyMessage={`No entries for ${focusLabel}`}
-          variant="secondary"
-          scale={scale}
-          scrollLeft={scrollLeft}
-          selectedEntryId={selectedEntry?.id ?? null}
-          selectedEntry={selectedEntry}
-          title="Secondary timeline"
-          onEditEntry={onEditSelected}
-          onEntryOpen={onEntryOpen}
-          onFocusItem={onFocusItem}
-          onFocusPerson={onFocusPerson}
-          onScrollLeftChange={onScrollLeftChange}
-        />
+        <section className="timeline-focus" aria-label={`${focusLabel} timeline`}>
+          <h2 className="timeline-focus__heading">{focusLabel}</h2>
+          <Timeline
+            entries={focusedEntries}
+            emptyMessage={`No entries for ${focusLabel}`}
+            variant="secondary"
+            scale={scale}
+            scrollLeft={scrollLeft}
+            selectedEntryId={selectedEntry?.id ?? null}
+            title="Secondary timeline"
+            onEntryOpen={onEntryOpen}
+            onCenteredEntryChange={onCenteredEntryChange}
+            onScrollLeftChange={onScrollLeftChange}
+          />
+        </section>
       ) : null}
     </main>
   );
