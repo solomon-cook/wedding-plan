@@ -39,6 +39,10 @@ export type TimelineEntry = {
   color?: string;
 };
 
+export type PersonItemAssociations = {
+  eventItemPeople: Record<string, Record<string, string[]>>;
+};
+
 export type Focus =
   | { kind: "all" }
   | { kind: "person"; value: string }

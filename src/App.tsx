@@ -8,15 +8,22 @@ import {
   getFocusedEntries,
   getGhostEntries,
   getMainTimelineEntries,
+  getResponsibleItemsForPersonInEntry,
+  getResponsiblePeopleForItemInEntry,
+  getUniqueItems,
+  getUniquePeople,
 } from "./lib/timelineFilters";
 import { getLeftForEntry, getTimelineWidth, createTimelineScale } from "./lib/timeScale";
 import {
+  createAssociationsFromEntries,
+  loadAssociations,
   loadTimelineEntries,
   parseImportedTimeline,
+  saveAssociations,
   resetTimelineEntries,
   saveTimelineEntries,
 } from "./lib/timelineStorage";
-import type { Focus, SearchResult, TimelineEntry } from "./types/timeline";
+import type { Focus, PersonItemAssociations, SearchResult, TimelineEntry } from "./types/timeline";
 
 type ActiveForm =
   | { mode: "create" }
@@ -48,6 +55,9 @@ function getInitialScrollLeft(entries: TimelineEntry[]): number {
 
 export function App(): JSX.Element {
   const [entries, setEntries] = useState<TimelineEntry[]>(() => loadTimelineEntries());
+  const [associations, setAssociations] = useState<PersonItemAssociations>(() =>
+    loadAssociations(entries),
+  );
   const [focus, setFocus] = useState<Focus>({ kind: "all" });
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(() =>
     getInitialSelectedEntryId(entries),
@@ -61,11 +71,44 @@ export function App(): JSX.Element {
     saveTimelineEntries(entries);
   }, [entries]);
 
+  useEffect(() => {
+    saveAssociations(associations);
+  }, [associations]);
+
   const scale = useMemo(() => createTimelineScale(), []);
   const mainEntries = useMemo(() => getMainTimelineEntries(entries), [entries]);
-  const focusedEntries = useMemo(() => getFocusedEntries(entries, focus), [entries, focus]);
-  const ghostEntries = useMemo(() => getGhostEntries(entries, focus), [entries, focus]);
+  const focusedEntries = useMemo(
+    () => getFocusedEntries(entries, focus, associations),
+    [associations, entries, focus],
+  );
+  const ghostEntries = useMemo(
+    () => getGhostEntries(entries, focus, associations),
+    [associations, entries, focus],
+  );
   const focusLabel = useMemo(() => getFocusLabel(entries, focus), [entries, focus]);
+  const associationCandidates = useMemo(
+    () =>
+      focus.kind === "person"
+        ? getUniqueItems(entries)
+        : focus.kind === "item"
+          ? getUniquePeople(entries)
+          : [],
+    [entries, focus],
+  );
+  const eventResponsibilities = useMemo(
+    () =>
+      Object.fromEntries(
+        focusedEntries.map((entry) => [
+          entry.id,
+          focus.kind === "person"
+            ? getResponsibleItemsForPersonInEntry(associations, entry, focus.value)
+            : focus.kind === "item"
+              ? getResponsiblePeopleForItemInEntry(associations, entry, focus.value)
+              : [],
+        ]),
+      ),
+    [associations, focus, focusedEntries],
+  );
   const selectedEntry = selectedEntryId
     ? entries.find((entry) => entry.id === selectedEntryId) ?? null
     : null;
@@ -75,7 +118,12 @@ export function App(): JSX.Element {
       : null;
 
   function jumpToEntry(entry: TimelineEntry): void {
-    setScrollLeft(Math.max(0, getLeftForEntry(entry, scale) - 160));
+    const viewportWidth =
+      typeof window === "undefined" ? 0 : Math.max(0, window.innerWidth - 56);
+    const maxScrollLeft = Math.max(0, getTimelineWidth(scale) - viewportWidth);
+    const centeredScrollLeft = getLeftForEntry(entry, scale) - viewportWidth / 2;
+
+    setScrollLeft(Math.min(maxScrollLeft, Math.max(0, centeredScrollLeft)));
   }
 
   function openEntry(entry: TimelineEntry): void {
@@ -90,6 +138,11 @@ export function App(): JSX.Element {
     ));
   }
 
+  function selectAndCenterEntry(entry: TimelineEntry): void {
+    selectCenteredEntry(entry);
+    jumpToEntry(entry);
+  }
+
   function focusPerson(person: string): void {
     setFocus({ kind: "person", value: person });
     setSelectedEntryId(null);
@@ -100,6 +153,56 @@ export function App(): JSX.Element {
     setFocus({ kind: "item", value: item });
     setSelectedEntryId(null);
     setActiveForm(null);
+  }
+
+  function updateFocusAssociation(entryId: string, value: string, enabled: boolean): void {
+    setAssociations((currentAssociations) => {
+      if (focus.kind === "person") {
+        const currentEvent = currentAssociations.eventItemPeople[entryId] ?? {};
+        const currentPeople = currentEvent[value] ?? [];
+        const nextPeople = enabled
+          ? [...new Set([...currentPeople, focus.value])]
+          : currentPeople.filter((person) => person !== focus.value);
+
+        const nextEvent = { ...currentEvent };
+        if (nextPeople.length > 0) {
+          nextEvent[value] = nextPeople.sort((a, b) => a.localeCompare(b));
+        } else {
+          delete nextEvent[value];
+        }
+
+        return {
+          eventItemPeople: {
+            ...currentAssociations.eventItemPeople,
+            [entryId]: nextEvent,
+          },
+        };
+      }
+
+      if (focus.kind === "item") {
+        const currentEvent = currentAssociations.eventItemPeople[entryId] ?? {};
+        const currentPeople = currentEvent[focus.value] ?? [];
+        const nextPeople = enabled
+          ? [...new Set([...currentPeople, value])]
+          : currentPeople.filter((person) => person !== value);
+
+        const nextEvent = { ...currentEvent };
+        if (nextPeople.length > 0) {
+          nextEvent[focus.value] = nextPeople.sort((a, b) => a.localeCompare(b));
+        } else {
+          delete nextEvent[focus.value];
+        }
+
+        return {
+          eventItemPeople: {
+            ...currentAssociations.eventItemPeople,
+            [entryId]: nextEvent,
+          },
+        };
+      }
+
+      return currentAssociations;
+    });
   }
 
   function selectSearchResult(result: SearchResult): void {
@@ -161,7 +264,9 @@ export function App(): JSX.Element {
 
   function resetToSeedData(): void {
     const resetEntries = resetTimelineEntries();
+    const resetAssociations = createAssociationsFromEntries(resetEntries);
     setEntries(resetEntries);
+    setAssociations(resetAssociations);
     setFocus({ kind: "all" });
     setSelectedEntryId(getInitialSelectedEntryId(resetEntries));
     setActiveForm(null);
@@ -195,6 +300,7 @@ export function App(): JSX.Element {
       }
 
       setEntries(imported);
+      setAssociations(createAssociationsFromEntries(imported));
       setFocus({ kind: "all" });
       setSelectedEntryId(null);
       setActiveForm(null);
@@ -295,6 +401,8 @@ export function App(): JSX.Element {
         focusedEntries={focusedEntries}
         focus={focus}
         focusLabel={focusLabel}
+        associationCandidates={associationCandidates}
+        eventResponsibilities={eventResponsibilities}
         ghostEntries={ghostEntries}
         mainEntries={mainEntries}
         scale={scale}
@@ -308,7 +416,8 @@ export function App(): JSX.Element {
         onEntryOpen={openEntry}
         onFocusItem={focusItem}
         onFocusPerson={focusPerson}
-        onCenteredEntryChange={selectCenteredEntry}
+        onCenteredEntryChange={selectAndCenterEntry}
+        onFocusAssociationChange={updateFocusAssociation}
         onScrollLeftChange={setScrollLeft}
       />
 

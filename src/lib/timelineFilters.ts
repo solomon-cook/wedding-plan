@@ -1,4 +1,4 @@
-import type { Focus, SearchResult, TimelineEntry } from "../types/timeline";
+import type { Focus, PersonItemAssociations, SearchResult, TimelineEntry } from "../types/timeline";
 import { formatEntryDateTime, getEntryStartMinute } from "./timeScale";
 
 function normalise(value: string): string {
@@ -45,14 +45,48 @@ export function entryMatchesQuery(entry: TimelineEntry, rawQuery: string): boole
   );
 }
 
-export function getFocusedEntries(entries: TimelineEntry[], focus: Focus): TimelineEntry[] {
+function entryHasResponsiblePerson(
+  associations: PersonItemAssociations | undefined,
+  entry: TimelineEntry,
+  person: string,
+): boolean {
+  return Object.values(associations?.eventItemPeople[entry.id] ?? {}).some((people) =>
+    people.includes(person),
+  );
+}
+
+function entryHasResponsibleItem(
+  associations: PersonItemAssociations | undefined,
+  entry: TimelineEntry,
+  item: string,
+): boolean {
+  return (associations?.eventItemPeople[entry.id]?.[item] ?? []).length > 0;
+}
+
+export function getFocusedEntries(
+  entries: TimelineEntry[],
+  focus: Focus,
+  associations?: PersonItemAssociations,
+): TimelineEntry[] {
   switch (focus.kind) {
     case "all":
       return sortEntriesByStart(entries);
     case "person":
-      return sortEntriesByStart(entries.filter((entry) => entry.people.includes(focus.value)));
+      return sortEntriesByStart(
+        entries.filter(
+          (entry) =>
+            entry.people.includes(focus.value) ||
+            entryHasResponsiblePerson(associations, entry, focus.value),
+        ),
+      );
     case "item":
-      return sortEntriesByStart(entries.filter((entry) => entry.items.includes(focus.value)));
+      return sortEntriesByStart(
+        entries.filter(
+          (entry) =>
+            entry.items.includes(focus.value) ||
+            entryHasResponsibleItem(associations, entry, focus.value),
+        ),
+      );
     case "entry": {
       const selectedEntry = entries.find((entry) => entry.id === focus.entryId);
       if (!selectedEntry) {
@@ -97,12 +131,16 @@ export function getFocusedEntries(entries: TimelineEntry[], focus: Focus): Timel
   }
 }
 
-export function getGhostEntries(entries: TimelineEntry[], focus: Focus): TimelineEntry[] {
+export function getGhostEntries(
+  entries: TimelineEntry[],
+  focus: Focus,
+  associations?: PersonItemAssociations,
+): TimelineEntry[] {
   if (focus.kind !== "person" && focus.kind !== "item" && focus.kind !== "search") {
     return [];
   }
 
-  return getFocusedEntries(entries, focus).filter(isSubTimelineEntry);
+  return getFocusedEntries(entries, focus, associations).filter(isSubTimelineEntry);
 }
 
 export function getUniquePeople(entries: TimelineEntry[]): string[] {
@@ -115,6 +153,56 @@ export function getUniqueItems(entries: TimelineEntry[]): string[] {
   return [...new Set(entries.flatMap((entry) => entry.items))]
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b));
+}
+
+export function getResponsibleItemsForPerson(
+  associations: PersonItemAssociations,
+  entries: TimelineEntry[],
+  person: string,
+): string[] {
+  return [
+    ...new Set(
+      entries.flatMap((entry) =>
+        Object.entries(associations.eventItemPeople[entry.id] ?? {})
+          .filter(([, people]) => people.includes(person))
+          .map(([item]) => item),
+      ),
+    ),
+  ].sort((a, b) => a.localeCompare(b));
+}
+
+export function getResponsiblePeopleForItem(
+  associations: PersonItemAssociations,
+  entries: TimelineEntry[],
+  item: string,
+): string[] {
+  return [
+    ...new Set(
+      entries.flatMap((entry) => associations.eventItemPeople[entry.id]?.[item] ?? []),
+    ),
+  ]
+    .sort((a, b) => a.localeCompare(b));
+}
+
+export function getResponsibleItemsForPersonInEntry(
+  associations: PersonItemAssociations,
+  entry: TimelineEntry,
+  person: string,
+): string[] {
+  return Object.entries(associations.eventItemPeople[entry.id] ?? {})
+    .filter(([, people]) => people.includes(person))
+    .map(([item]) => item)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+export function getResponsiblePeopleForItemInEntry(
+  associations: PersonItemAssociations,
+  entry: TimelineEntry,
+  item: string,
+): string[] {
+  return [...(associations.eventItemPeople[entry.id]?.[item] ?? [])].sort((a, b) =>
+    a.localeCompare(b),
+  );
 }
 
 export function getSearchResults(entries: TimelineEntry[], rawQuery: string): SearchResult[] {

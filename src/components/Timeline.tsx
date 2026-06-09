@@ -22,6 +22,7 @@ type TimelineProps = {
   onEntryOpen: (entry: TimelineEntry) => void;
   onCenteredEntryChange?: (entry: TimelineEntry) => void;
   onScrollLeftChange: (scrollLeft: number) => void;
+  onViewportWidthChange?: (width: number) => void;
 };
 
 type TimelineCanvasStyle = CSSProperties & {
@@ -46,6 +47,7 @@ export function Timeline({
   onEntryOpen,
   onCenteredEntryChange,
   onScrollLeftChange,
+  onViewportWidthChange,
 }: TimelineProps): JSX.Element {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const applyingScrollRef = useRef(false);
@@ -177,7 +179,9 @@ export function Timeline({
     }
 
     function updateViewportWidth(): void {
-      setViewportWidth(element?.clientWidth ?? 0);
+      const nextViewportWidth = element?.clientWidth ?? 0;
+      setViewportWidth(nextViewportWidth);
+      onViewportWidthChange?.(nextViewportWidth);
     }
 
     updateViewportWidth();
@@ -191,7 +195,7 @@ export function Timeline({
     observer.observe(element);
 
     return () => observer.disconnect();
-  }, []);
+  }, [onViewportWidthChange]);
 
   useEffect(() => {
     if (!viewportWidth || !onCenteredEntryChange) {

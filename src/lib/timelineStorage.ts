@@ -5,11 +5,13 @@ import {
   entryTypes,
   timelineRoles,
   type EntryStatus,
+  type PersonItemAssociations,
   type TimelineEntry,
   type TimelineRole,
 } from "../types/timeline";
 
 const STORAGE_KEY = "wedding-day-planner.timeline.v1";
+const ASSOCIATIONS_STORAGE_KEY = "wedding-day-planner.associations.v1";
 const KNOWN_MAIN_ENTRY_IDS = new Set([
   "prep-hair-makeup",
   "guests-arrive",
@@ -54,6 +56,48 @@ function normaliseStringArray(value: unknown): string[] {
     .filter((item): item is string => typeof item === "string")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function sortStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+export function createAssociationsFromEntries(entries: TimelineEntry[]): PersonItemAssociations {
+  const eventItemPeople: Record<string, Record<string, string[]>> = {};
+
+  entries.forEach((entry) => {
+    eventItemPeople[entry.id] = {};
+
+    entry.items.forEach((item) => {
+      eventItemPeople[entry.id][item] = sortStrings(entry.people);
+    });
+  });
+
+  return { eventItemPeople };
+}
+
+function normaliseAssociations(value: unknown): PersonItemAssociations | null {
+  if (!isRecord(value) || !isRecord(value.eventItemPeople)) {
+    return null;
+  }
+
+  const eventItemPeople: Record<string, Record<string, string[]>> = {};
+
+  Object.entries(value.eventItemPeople).forEach(([entryId, itemsToPeople]) => {
+    if (!entryId.trim() || !isRecord(itemsToPeople)) {
+      return;
+    }
+
+    eventItemPeople[entryId.trim()] = {};
+
+    Object.entries(itemsToPeople).forEach(([item, people]) => {
+      if (item.trim()) {
+        eventItemPeople[entryId.trim()][item.trim()] = sortStrings(normaliseStringArray(people));
+      }
+    });
+  });
+
+  return { eventItemPeople };
 }
 
 function normaliseStatus(value: unknown): EntryStatus | undefined {
@@ -148,9 +192,29 @@ export function saveTimelineEntries(entries: TimelineEntry[]): void {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
 }
 
+export function loadAssociations(entries: TimelineEntry[]): PersonItemAssociations {
+  try {
+    const stored = window.localStorage.getItem(ASSOCIATIONS_STORAGE_KEY);
+
+    if (!stored) {
+      return createAssociationsFromEntries(entries);
+    }
+
+    const associations = normaliseAssociations(JSON.parse(stored) as unknown);
+    return associations ?? createAssociationsFromEntries(entries);
+  } catch {
+    return createAssociationsFromEntries(entries);
+  }
+}
+
+export function saveAssociations(associations: PersonItemAssociations): void {
+  window.localStorage.setItem(ASSOCIATIONS_STORAGE_KEY, JSON.stringify(associations));
+}
+
 export function resetTimelineEntries(): TimelineEntry[] {
   const entries = cloneSeedTimeline();
   saveTimelineEntries(entries);
+  saveAssociations(createAssociationsFromEntries(entries));
   return entries;
 }
 
