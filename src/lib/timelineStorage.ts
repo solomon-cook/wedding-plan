@@ -10,37 +10,50 @@ import {
   type TimelineRole,
 } from "../types/timeline";
 
-const STORAGE_KEY = "wedding-day-planner.timeline.v1";
-const ASSOCIATIONS_STORAGE_KEY = "wedding-day-planner.associations.v1";
+const STORAGE_KEY = "wedding-day-planner.timeline.v3";
+const ASSOCIATIONS_STORAGE_KEY = "wedding-day-planner.associations.v3";
 const KNOWN_MAIN_ENTRY_IDS = new Set([
-  "prep-hair-makeup",
-  "guests-arrive",
-  "ceremony",
-  "confetti-line",
-  "couple-portraits",
-  "drinks-reception",
-  "dinner-call",
+  "thursday-wedding-preparations",
+  "the-well-set-up",
+  "the-hide-set-up",
+  "friday-meal-family-helpers",
+  "bridal-party-getting-ready",
+  "bring-items-guest-road-to-church",
+  "bring-items-everton-road-to-church",
+  "bring-items-dorothy-road-to-church",
+  "sol-and-groomsmen-arrive-church",
+  "ceremony-arrival",
+  "church-ceremony",
+  "confetti-photo",
+  "family-and-friends-photos",
+  "food-in-cafe",
+  "surprise-view-photos",
+  "guests-arrival-wedding-breakfast",
+  "wedding-breakfast",
+  "bride-and-groom-arrive-hide",
   "speeches",
-  "cake-cutting",
+  "evening-reception-guests-arrive",
+  "wedding-cake-cutting",
   "first-dance",
-  "evening-party",
+  "evening-reception",
+  "clear-up-and-collecting-things",
 ]);
 const KNOWN_PARENT_ENTRY_IDS = new Map([
-  ["flowers-collection", "ceremony"],
-  ["cake-collection", "cake-cutting"],
-  ["photographer-arrives", "prep-hair-makeup"],
-  ["prep-dresses-ready", "prep-hair-makeup"],
-  ["rings-to-sam", "ceremony"],
-  ["ceremony-flowers-set", "ceremony"],
-  ["cake-delivery", "cake-cutting"],
-  ["seating-plan-set", "dinner-call"],
-  ["cake-setup", "cake-cutting"],
-  ["cake-boxed", "cake-cutting"],
-  ["decor-collection", "evening-party"],
+  ["band-arrive-the-well", "church-ceremony"],
+  ["groomsmen-snacks-refreshments-confetti", "church-ceremony"],
+  ["groomsmen-clear-up-the-well", "food-in-cafe"],
+  ["dj-arrives", "evening-reception"],
 ]);
 
 function cloneSeedTimeline(): TimelineEntry[] {
   return seedTimeline.map((entry) => ({ ...entry, people: [...entry.people], items: [...entry.items], relatedEntryIds: [...entry.relatedEntryIds] }));
+}
+
+function mergeMissingSeedEntries(entries: TimelineEntry[]): TimelineEntry[] {
+  const entryIds = new Set(entries.map((entry) => entry.id));
+  const missingSeedEntries = cloneSeedTimeline().filter((entry) => !entryIds.has(entry.id));
+
+  return missingSeedEntries.length > 0 ? [...entries, ...missingSeedEntries] : entries;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -182,7 +195,7 @@ export function loadTimelineEntries(): TimelineEntry[] {
     }
 
     const entries = parsed.map(normaliseEntry).filter((entry): entry is TimelineEntry => entry !== null);
-    return entries.length > 0 ? entries : cloneSeedTimeline();
+    return entries.length > 0 ? mergeMissingSeedEntries(entries) : cloneSeedTimeline();
   } catch {
     return cloneSeedTimeline();
   }

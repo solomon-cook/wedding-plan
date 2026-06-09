@@ -1,11 +1,28 @@
+import { useMemo, useState } from "react";
 import { Edit3 } from "lucide-react";
 import { formatEntryDate } from "../lib/timeScale";
-import type { TimelineEntry } from "../types/timeline";
+import type { PersonItemAssociations, TimelineEntry } from "../types/timeline";
 
 type JobsBoardProps = {
+  associations: PersonItemAssociations;
   entries: TimelineEntry[];
   onEntryEdit: (entry: TimelineEntry) => void;
   onEntryUpdate: (entry: TimelineEntry) => void;
+};
+
+type JobsView = "events" | "items" | "people";
+
+type ItemResponsibility = {
+  item: string;
+  people: string[];
+  locations: string[];
+  entries: TimelineEntry[];
+};
+
+type PersonResponsibility = {
+  person: string;
+  entries: TimelineEntry[];
+  items: string[];
 };
 
 function joinList(values: string[]): string {
@@ -34,12 +51,99 @@ function compareEntries(first: TimelineEntry, second: TimelineEntry): number {
   return first.title.localeCompare(second.title);
 }
 
+function sortStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+function getResponsiblePeopleForEntryItem(
+  associations: PersonItemAssociations,
+  entry: TimelineEntry,
+  item: string,
+): string[] {
+  const responsiblePeople = associations.eventItemPeople[entry.id]?.[item] ?? [];
+  return responsiblePeople.length > 0 ? sortStrings(responsiblePeople) : sortStrings(entry.people);
+}
+
+function getItemResponsibilities(
+  entries: TimelineEntry[],
+  associations: PersonItemAssociations,
+): ItemResponsibility[] {
+  const responsibilities = new Map<string, ItemResponsibility>();
+
+  entries.forEach((entry) => {
+    entry.items.forEach((item) => {
+      const existing = responsibilities.get(item) ?? {
+        item,
+        people: [],
+        locations: [],
+        entries: [],
+      };
+
+      existing.people = sortStrings([
+        ...existing.people,
+        ...getResponsiblePeopleForEntryItem(associations, entry, item),
+      ]);
+      existing.locations = sortStrings([
+        ...existing.locations,
+        entry.location ?? "Location not set",
+      ]);
+      existing.entries = [...existing.entries, entry].sort(compareEntries);
+
+      responsibilities.set(item, existing);
+    });
+  });
+
+  return [...responsibilities.values()].sort((a, b) => a.item.localeCompare(b.item));
+}
+
+function getPersonResponsibilities(
+  entries: TimelineEntry[],
+  associations: PersonItemAssociations,
+): PersonResponsibility[] {
+  const responsibilities = new Map<string, PersonResponsibility>();
+
+  entries.forEach((entry) => {
+    const people = new Set(entry.people);
+    Object.values(associations.eventItemPeople[entry.id] ?? {}).forEach((itemPeople) => {
+      itemPeople.forEach((person) => people.add(person));
+    });
+
+    people.forEach((person) => {
+      const itemsForPerson = entry.items.filter((item) =>
+        getResponsiblePeopleForEntryItem(associations, entry, item).includes(person),
+      );
+      const existing = responsibilities.get(person) ?? {
+        person,
+        entries: [],
+        items: [],
+      };
+
+      existing.entries = [...existing.entries, entry].sort(compareEntries);
+      existing.items = sortStrings([...existing.items, ...itemsForPerson]);
+
+      responsibilities.set(person, existing);
+    });
+  });
+
+  return [...responsibilities.values()].sort((a, b) => a.person.localeCompare(b.person));
+}
+
 export function JobsBoard({
+  associations,
   entries,
   onEntryEdit,
   onEntryUpdate,
 }: JobsBoardProps): JSX.Element {
-  const sortedEntries = [...entries].sort(compareEntries);
+  const [view, setView] = useState<JobsView>("events");
+  const sortedEntries = useMemo(() => [...entries].sort(compareEntries), [entries]);
+  const itemResponsibilities = useMemo(
+    () => getItemResponsibilities(entries, associations),
+    [associations, entries],
+  );
+  const personResponsibilities = useMemo(
+    () => getPersonResponsibilities(entries, associations),
+    [associations, entries],
+  );
 
   return (
     <main className="jobs-workspace">
@@ -47,11 +151,41 @@ export function JobsBoard({
         <div className="jobs-board__header">
           <div>
             <span className="section-label">Assignments</span>
-            <h1>Jobs and events</h1>
+            <h1>
+              {view === "events"
+                ? "Jobs and events"
+                : view === "items"
+                  ? "Required items"
+                  : "People with jobs"}
+            </h1>
+          </div>
+          <div className="jobs-board__tabs" aria-label="Assignment view">
+            <button
+              className={`quiet-button ${view === "events" ? "quiet-button--active" : ""}`}
+              type="button"
+              onClick={() => setView("events")}
+            >
+              Jobs
+            </button>
+            <button
+              className={`quiet-button ${view === "items" ? "quiet-button--active" : ""}`}
+              type="button"
+              onClick={() => setView("items")}
+            >
+              Items
+            </button>
+            <button
+              className={`quiet-button ${view === "people" ? "quiet-button--active" : ""}`}
+              type="button"
+              onClick={() => setView("people")}
+            >
+              People
+            </button>
           </div>
         </div>
 
-        <div className="jobs-table" role="table" aria-label="Jobs and events">
+        {view === "events" ? (
+          <div className="jobs-table" role="table" aria-label="Jobs and events">
           <div className="jobs-table__head" role="row">
             <span role="columnheader">Job or event</span>
             <span role="columnheader">Time</span>
@@ -138,6 +272,54 @@ export function JobsBoard({
             ))}
           </div>
         </div>
+        ) : null}
+
+        {view === "items" ? (
+          <div className="summary-list" aria-label="Required items">
+            {itemResponsibilities.map((responsibility) => (
+              <article className="summary-row" key={responsibility.item}>
+                <div className="summary-row__primary">
+                  <strong>{responsibility.item}</strong>
+                  <span>{responsibility.people.length > 0 ? joinList(responsibility.people) : "No person assigned"}</span>
+                </div>
+                <div className="summary-row__meta">
+                  <span>Before wedding: {joinList(responsibility.locations)}</span>
+                  <span>
+                    Needed for:{" "}
+                    {responsibility.entries
+                      .map((entry) => `${entry.title} (${formatEntryDate(entry)})`)
+                      .join(", ")}
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : null}
+
+        {view === "people" ? (
+          <div className="summary-list" aria-label="People with jobs">
+            {personResponsibilities.map((responsibility) => (
+              <article className="summary-row" key={responsibility.person}>
+                <div className="summary-row__primary">
+                  <strong>{responsibility.person}</strong>
+                  <span>
+                    {responsibility.entries.length}{" "}
+                    {responsibility.entries.length === 1 ? "job or event" : "jobs and events"}
+                  </span>
+                </div>
+                <div className="summary-row__meta">
+                  <span>Tasks: {responsibility.entries.map((entry) => entry.title).join(", ")}</span>
+                  <span>
+                    Items:{" "}
+                    {responsibility.items.length > 0
+                      ? joinList(responsibility.items)
+                      : "No items assigned"}
+                  </span>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : null}
       </section>
     </main>
   );

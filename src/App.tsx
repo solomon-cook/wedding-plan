@@ -32,7 +32,7 @@ type ActiveForm =
 
 type ActivePage = "timeline" | "jobs";
 
-const INITIAL_CENTER_ENTRY_ID = "ceremony";
+const INITIAL_CENTER_ENTRY_ID = "church-ceremony";
 
 function getInitialCenteredEntryId(entries: TimelineEntry[]): string | null {
   return entries.some((entry) => entry.id === INITIAL_CENTER_ENTRY_ID)
@@ -445,6 +445,7 @@ export function App(): JSX.Element {
 
       {activePage === "jobs" ? (
         <JobsBoard
+          associations={associations}
           entries={entries}
           onEntryEdit={(entry) => {
             setSelectedEntryId(entry.id);
