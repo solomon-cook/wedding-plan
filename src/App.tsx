@@ -145,13 +145,11 @@ export function App(): JSX.Element {
 
   function focusPerson(person: string): void {
     setFocus({ kind: "person", value: person });
-    setSelectedEntryId(null);
     setActiveForm(null);
   }
 
   function focusItem(item: string): void {
     setFocus({ kind: "item", value: item });
-    setSelectedEntryId(null);
     setActiveForm(null);
   }
 
@@ -416,7 +414,8 @@ export function App(): JSX.Element {
         onEntryOpen={openEntry}
         onFocusItem={focusItem}
         onFocusPerson={focusPerson}
-        onCenteredEntryChange={selectAndCenterEntry}
+        onCenteredEntryChange={selectCenteredEntry}
+        onEntryCenter={selectAndCenterEntry}
         onFocusAssociationChange={updateFocusAssociation}
         onScrollLeftChange={setScrollLeft}
       />

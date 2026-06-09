@@ -20,6 +20,7 @@ type TimelineShellProps = {
   onFocusItem: (item: string) => void;
   onFocusPerson: (person: string) => void;
   onCenteredEntryChange: (entry: TimelineEntry) => void;
+  onEntryCenter: (entry: TimelineEntry) => void;
   onFocusAssociationChange: (entryId: string, value: string, enabled: boolean) => void;
   onScrollLeftChange: (scrollLeft: number) => void;
 };
@@ -40,6 +41,7 @@ export function TimelineShell({
   onFocusItem,
   onFocusPerson,
   onCenteredEntryChange,
+  onEntryCenter,
   onFocusAssociationChange,
   onScrollLeftChange,
 }: TimelineShellProps): JSX.Element {
@@ -108,7 +110,7 @@ export function TimelineShell({
         selectedEntryId={selectedEntry?.id ?? null}
         title="Main timeline"
         onEntryOpen={onEntryOpen}
-        onCenteredEntryChange={shouldShowSecondary ? undefined : onCenteredEntryChange}
+        onCenteredEntryChange={onCenteredEntryChange}
         onScrollLeftChange={onScrollLeftChange}
         onViewportWidthChange={setMainTimelineViewportWidth}
       />
@@ -124,7 +126,7 @@ export function TimelineShell({
               focus={focus}
               focusLabel={focusLabel}
               onAssociationToggle={onFocusAssociationChange}
-              onEntryOpen={onCenteredEntryChange}
+              onEntryOpen={onEntryCenter}
               onFocusAssociation={focus.kind === "person" ? onFocusItem : onFocusPerson}
             />
           ) : (
@@ -139,8 +141,7 @@ export function TimelineShell({
               scrollLeft={scrollLeft}
               selectedEntryId={selectedEntry?.id ?? null}
               title="Secondary timeline"
-              onEntryOpen={onCenteredEntryChange}
-              onCenteredEntryChange={onCenteredEntryChange}
+              onEntryOpen={onEntryCenter}
               onScrollLeftChange={onScrollLeftChange}
             />
           )}

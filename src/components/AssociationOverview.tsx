@@ -55,6 +55,35 @@ type OverviewScrubberStyle = CSSProperties & {
   "--overview-scrubber-progress": string;
 };
 
+type OverviewScrubberPlacement = {
+  progress: number;
+  rowIndex: number;
+};
+
+const OVERVIEW_EVENTS_PER_ROW = 6;
+const OVERVIEW_EXPORT_FONT_FAMILY = '"arsenica-variable", sans-serif';
+
+function getOverviewExportFont(size: number, weight = 400): string {
+  return `${weight} ${size}px ${OVERVIEW_EXPORT_FONT_FAMILY}`;
+}
+
+async function loadOverviewExportFont(): Promise<void> {
+  if (!("fonts" in document)) {
+    return;
+  }
+
+  await Promise.all([
+    document.fonts.load(getOverviewExportFont(13, 400)),
+    document.fonts.load(getOverviewExportFont(15, 400)),
+    document.fonts.load(getOverviewExportFont(17, 400)),
+    document.fonts.load(getOverviewExportFont(20, 520)),
+    document.fonts.load(getOverviewExportFont(24, 520)),
+    document.fonts.load(getOverviewExportFont(26, 560)),
+    document.fonts.load(getOverviewExportFont(72, 560)),
+    document.fonts.ready,
+  ]);
+}
+
 function slugify(value: string): string {
   return value
     .trim()
@@ -71,24 +100,70 @@ function getOverviewEventPosition(index: number, total: number): number {
   return index / (total - 1);
 }
 
-function getOverviewScrubberProgress(entries: TimelineEntry[], currentMinute: number | null): number | null {
+function getOverviewRows(entries: TimelineEntry[]): TimelineEntry[][] {
+  if (entries.length <= OVERVIEW_EVENTS_PER_ROW) {
+    return entries.length > 0 ? [entries] : [];
+  }
+
+  const rowCount = Math.ceil(entries.length / OVERVIEW_EVENTS_PER_ROW);
+  const baseRowLength = Math.floor(entries.length / rowCount);
+  const longerRowCount = entries.length % rowCount;
+  const rows: TimelineEntry[][] = [];
+  let entryIndex = 0;
+
+  for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+    const rowLength = baseRowLength + (rowIndex < longerRowCount ? 1 : 0);
+    rows.push(entries.slice(entryIndex, entryIndex + rowLength));
+    entryIndex += rowLength;
+  }
+
+  return rows;
+}
+
+function getOverviewPlacementForIndex(index: number, entries: TimelineEntry[]): OverviewScrubberPlacement {
+  const rows = getOverviewRows(entries);
+  let rowStartIndex = 0;
+
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    const rowLength = rows[rowIndex].length;
+
+    if (index < rowStartIndex + rowLength) {
+      return {
+        progress: getOverviewEventPosition(index - rowStartIndex, rowLength),
+        rowIndex,
+      };
+    }
+
+    rowStartIndex += rowLength;
+  }
+
+  return {
+    progress: 0.5,
+    rowIndex: 0,
+  };
+}
+
+function getOverviewScrubberPlacement(
+  entries: TimelineEntry[],
+  currentMinute: number | null,
+): OverviewScrubberPlacement | null {
   if (currentMinute === null || entries.length === 0) {
     return null;
   }
 
   if (entries.length === 1) {
-    return getOverviewEventPosition(0, entries.length);
+    return getOverviewPlacementForIndex(0, entries);
   }
 
   const startMinutes = entries.map(getEntryStartMinute);
   const lastIndex = entries.length - 1;
 
   if (currentMinute <= startMinutes[0]) {
-    return getOverviewEventPosition(0, entries.length);
+    return getOverviewPlacementForIndex(0, entries);
   }
 
   if (currentMinute >= startMinutes[lastIndex]) {
-    return getOverviewEventPosition(lastIndex, entries.length);
+    return getOverviewPlacementForIndex(lastIndex, entries);
   }
 
   for (let index = 0; index < lastIndex; index += 1) {
@@ -96,21 +171,30 @@ function getOverviewScrubberProgress(entries: TimelineEntry[], currentMinute: nu
     const segmentEndMinute = startMinutes[index + 1];
 
     if (currentMinute <= segmentEndMinute) {
-      const segmentStartPosition = getOverviewEventPosition(index, entries.length);
-      const segmentEndPosition = getOverviewEventPosition(index + 1, entries.length);
+      const segmentStartPlacement = getOverviewPlacementForIndex(index, entries);
+      const segmentEndPlacement = getOverviewPlacementForIndex(index + 1, entries);
+
+      if (segmentStartPlacement.rowIndex !== segmentEndPlacement.rowIndex) {
+        return currentMinute >= segmentEndMinute ? segmentEndPlacement : segmentStartPlacement;
+      }
 
       if (segmentEndMinute <= segmentStartMinute) {
-        return segmentStartPosition;
+        return segmentStartPlacement;
       }
 
       const segmentProgress =
         (currentMinute - segmentStartMinute) / (segmentEndMinute - segmentStartMinute);
 
-      return segmentStartPosition + (segmentEndPosition - segmentStartPosition) * segmentProgress;
+      return {
+        progress:
+          segmentStartPlacement.progress +
+          (segmentEndPlacement.progress - segmentStartPlacement.progress) * segmentProgress,
+        rowIndex: segmentStartPlacement.rowIndex,
+      };
     }
   }
 
-  return getOverviewEventPosition(lastIndex, entries.length);
+  return getOverviewPlacementForIndex(lastIndex, entries);
 }
 
 function triggerDownload(blob: Blob, fileName: string): void {
@@ -135,7 +219,7 @@ function openPreparingPreview(): Window | null {
   previewWindow.document.body.style.margin = "0";
   previewWindow.document.body.style.background = "#f8f3ea";
   previewWindow.document.body.style.color = "#263f3a";
-  previewWindow.document.body.style.fontFamily = "serif";
+  previewWindow.document.body.style.fontFamily = OVERVIEW_EXPORT_FONT_FAMILY;
   previewWindow.document.body.innerHTML = `
     <main style="display:grid;min-height:100vh;place-items:center;padding:24px;text-align:center;">
       <p style="font-size:18px;">Preparing JPEG...</p>
@@ -154,7 +238,7 @@ function showJpegPreview(previewWindow: Window | null, blob: Blob, fileName: str
   previewWindow.document.title = fileName;
   previewWindow.document.body.innerHTML = `
     <main style="box-sizing:border-box;display:grid;gap:16px;min-height:100vh;padding:18px;background:#f8f3ea;color:#263f3a;">
-      <a href="${jpegUrl}" download="${fileName}" style="justify-self:end;color:#263f3a;text-decoration:underline;font:14px sans-serif;">
+      <a href="${jpegUrl}" download="${fileName}" style="justify-self:end;color:#263f3a;text-decoration:underline;font:520 14px ${OVERVIEW_EXPORT_FONT_FAMILY};">
         Download JPEG
       </a>
       <img src="${jpegUrl}" alt="${fileName}" style="display:block;max-width:100%;height:auto;margin:0 auto;box-shadow:0 12px 40px rgba(38,63,58,0.14);" />
@@ -228,12 +312,44 @@ function drawTextBlock(
   });
 }
 
+function getCanvasBackgroundColor(): string {
+  const surfaceColor = getComputedStyle(document.documentElement).getPropertyValue("--surface").trim();
+  return surfaceColor || "#fffdf8";
+}
+
+function truncateCanvasText(context: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (context.measureText(text).width <= maxWidth) {
+    return text;
+  }
+
+  const ellipsis = "...";
+  let truncated = text;
+
+  while (truncated.length > 0 && context.measureText(`${truncated}${ellipsis}`).width > maxWidth) {
+    truncated = truncated.slice(0, -1);
+  }
+
+  return truncated ? `${truncated}${ellipsis}` : ellipsis;
+}
+
 async function renderOverviewAsJpegBlob(data: OverviewExportData): Promise<Blob | null> {
+  await loadOverviewExportFont();
+
   const scale = 2;
-  const width = 1400;
-  const padding = 72;
-  const eventStripHeight = 190;
-  const rowGap = 20;
+  const width = 1800;
+  const padding = 120;
+  const metaColumnWidth = 390;
+  const eventRowHeight = 190;
+  const eventRowGap = 30;
+  const rowGap = 34;
+  const rowDividerOffset = 28;
+  const responsibilityX = padding + metaColumnWidth + 56;
+  const responsibilityWidth = width - padding - responsibilityX;
+  const overviewRows = getOverviewRows(data.entries);
+  const eventStripHeight =
+    overviewRows.length > 0
+      ? overviewRows.length * eventRowHeight + Math.max(0, overviewRows.length - 1) * eventRowGap
+      : eventRowHeight;
 
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
@@ -242,81 +358,87 @@ async function renderOverviewAsJpegBlob(data: OverviewExportData): Promise<Blob 
     return null;
   }
 
-  context.font = "20px Georgia, serif";
+  context.font = getOverviewExportFont(20, 520);
   const rowHeights = data.entries.map((entry) => {
     const values = data.eventResponsibilities[entry.id] ?? [];
     const text = values.length > 0 ? values.join(", ") : "None selected";
-    const lines = wrapCanvasText(context, text, width - padding * 2 - 300);
+    const lines = wrapCanvasText(context, text, responsibilityWidth);
 
-    return Math.max(58, lines.length * 26 + 20);
+    return Math.max(92, lines.length * 32 + 38);
   });
   const height =
     padding * 2 +
-    78 +
+    96 +
     eventStripHeight +
-    40 +
+    76 +
     rowHeights.reduce((total, rowHeight) => total + rowHeight + rowGap, 0);
 
   canvas.width = width * scale;
   canvas.height = height * scale;
   context.scale(scale, scale);
-  context.fillStyle = "#f8f3ea";
+  context.fillStyle = getCanvasBackgroundColor();
   context.fillRect(0, 0, width, height);
 
   context.fillStyle = "#6d6760";
-  context.font = "22px Georgia, serif";
+  context.font = getOverviewExportFont(24, 520);
   context.fillText(data.focusKind === "person" ? "Person overview" : "Item overview", padding, padding);
 
   context.fillStyle = "#16201d";
-  context.font = "56px Georgia, serif";
-  context.fillText(data.focusLabel, padding, padding + 58);
+  context.font = getOverviewExportFont(72, 560);
+  context.fillText(data.focusLabel, padding, padding + 78);
 
-  const stripTop = padding + 128;
-  const lineY = stripTop + 52;
-  const firstX = padding + 60;
-  const lastX = width - padding - 60;
-  const step = data.entries.length > 1 ? (lastX - firstX) / (data.entries.length - 1) : 0;
+  const stripTop = padding + 188;
+  const firstX = padding + 80;
+  const lastX = width - padding - 80;
 
-  context.strokeStyle = "rgba(50,44,35,0.28)";
-  context.setLineDash([2, 8]);
-  context.beginPath();
-  context.moveTo(firstX, lineY);
-  context.lineTo(lastX, lineY);
-  context.stroke();
-  context.setLineDash([]);
+  overviewRows.forEach((rowEntries, rowIndex) => {
+    const lineY = stripTop + 72 + rowIndex * (eventRowHeight + eventRowGap);
+    const step = rowEntries.length > 1 ? (lastX - firstX) / (rowEntries.length - 1) : 0;
+    const eventLabelWidth = rowEntries.length > 1
+      ? Math.min(210, Math.max(128, step - 40))
+      : 240;
 
-  data.entries.forEach((entry, index) => {
-    const x = data.entries.length > 1 ? firstX + index * step : width / 2;
-    const values = data.eventResponsibilities[entry.id] ?? [];
-    const smallText = values.join(", ");
-
-    context.fillStyle = "#2d5d62";
+    context.strokeStyle = "rgba(50,44,35,0.28)";
+    context.setLineDash([2, 8]);
     context.beginPath();
-    context.arc(x, lineY, 9, 0, Math.PI * 2);
-    context.fill();
+    context.moveTo(firstX, lineY);
+    context.lineTo(lastX, lineY);
+    context.stroke();
+    context.setLineDash([]);
 
-    context.textAlign = "center";
-    context.fillStyle = "#16201d";
-    context.font = "18px Georgia, serif";
-    context.fillText(entry.title, x, lineY + 34, 128);
+    rowEntries.forEach((entry, index) => {
+      const x = rowEntries.length > 1 ? firstX + index * step : width / 2;
+      const values = data.eventResponsibilities[entry.id] ?? [];
+      const smallText = values.join(", ");
 
-    context.fillStyle = "#6d6760";
-    context.font = "14px Georgia, serif";
-    context.fillText(formatEntryDateTime(entry), x, lineY + 56, 128);
+      context.fillStyle = "#2d5d62";
+      context.beginPath();
+      context.arc(x, lineY, 10, 0, Math.PI * 2);
+      context.fill();
 
-    if (smallText) {
-      context.fillStyle = "rgba(109,103,96,0.82)";
-      context.font = "12px Georgia, serif";
-      context.fillText(smallText, x, lineY + 76, 128);
-    }
+      context.textAlign = "center";
+      context.fillStyle = "#16201d";
+      context.font = getOverviewExportFont(20, 560);
+      context.fillText(truncateCanvasText(context, entry.title, eventLabelWidth), x, lineY + 48);
+
+      context.fillStyle = "#6d6760";
+      context.font = getOverviewExportFont(15);
+      context.fillText(formatEntryDateTime(entry), x, lineY + 76);
+
+      if (smallText) {
+        context.fillStyle = "rgba(109,103,96,0.82)";
+        context.font = getOverviewExportFont(13);
+        context.fillText(truncateCanvasText(context, smallText, eventLabelWidth), x, lineY + 102);
+      }
+    });
   });
 
   context.textAlign = "left";
-  let y = stripTop + eventStripHeight + 22;
+  let y = stripTop + eventStripHeight + 44;
   context.fillStyle = "#6d6760";
-  context.font = "22px Georgia, serif";
+  context.font = getOverviewExportFont(24, 520);
   context.fillText(`${data.associationLabel} by event`, padding, y);
-  y += 34;
+  y += 56;
 
   data.entries.forEach((entry, index) => {
     const values = data.eventResponsibilities[entry.id] ?? [];
@@ -326,27 +448,27 @@ async function renderOverviewAsJpegBlob(data: OverviewExportData): Promise<Blob 
     context.strokeStyle = "rgba(50,44,35,0.2)";
     context.setLineDash([2, 7]);
     context.beginPath();
-    context.moveTo(padding, y - 14);
-    context.lineTo(width - padding, y - 14);
+    context.moveTo(padding, y - rowDividerOffset);
+    context.lineTo(width - padding, y - rowDividerOffset);
     context.stroke();
     context.setLineDash([]);
 
     context.fillStyle = "#16201d";
-    context.font = "22px Georgia, serif";
-    context.fillText(entry.title, padding, y + 14, 240);
+    context.font = getOverviewExportFont(26, 560);
+    context.fillText(truncateCanvasText(context, entry.title, metaColumnWidth - 34), padding, y + 22);
 
     context.fillStyle = "#6d6760";
-    context.font = "16px Georgia, serif";
-    context.fillText(formatEntryDateTime(entry), padding, y + 40, 240);
+    context.font = getOverviewExportFont(17);
+    context.fillText(formatEntryDateTime(entry), padding, y + 56, metaColumnWidth - 34);
 
     context.fillStyle = "#263f3a";
-    context.font = "20px Georgia, serif";
+    context.font = getOverviewExportFont(24, 520);
     drawTextBlock(
       context,
-      wrapCanvasText(context, text, width - padding * 2 - 300),
-      padding + 300,
-      y + 18,
-      26,
+      wrapCanvasText(context, text, responsibilityWidth),
+      responsibilityX,
+      y + 24,
+      32,
     );
 
     y += rowHeight + rowGap;
@@ -401,7 +523,8 @@ export function AssociationOverview({
   const [expandedEntryIds, setExpandedEntryIds] = useState<Set<string>>(() => new Set());
   const [exportPreview, setExportPreview] = useState<ExportPreview | null>(null);
   const associationLabel = focus.kind === "person" ? "Items" : "People";
-  const scrubberProgress = getOverviewScrubberProgress(entries, currentMinute);
+  const overviewRows = getOverviewRows(entries);
+  const scrubberPlacement = getOverviewScrubberPlacement(entries, currentMinute);
 
   function toggleExpandedEntry(entryId: string): void {
     setExpandedEntryIds((currentEntryIds) => {
@@ -476,39 +599,44 @@ export function AssociationOverview({
       ) : null}
 
       <div className="association-overview__events" aria-label={`${focusLabel} events`}>
-        <div className="association-overview__event-track">
-          {scrubberProgress !== null ? (
-            <span
-              className="association-overview__scrubber"
-              aria-hidden="true"
-              style={{
-                "--overview-scrubber-progress": `${scrubberProgress * 100}%`,
-              } as OverviewScrubberStyle}
-            />
-          ) : null}
-          {entries.map((entry, index) => {
-            const eventStyle: OverviewEventStyle = {
-              "--overview-event-position": `${getOverviewEventPosition(index, entries.length) * 100}%`,
-            };
+        {overviewRows.map((rowEntries, rowIndex) => (
+          <div
+            className="association-overview__event-track"
+            key={`overview-row-${rowEntries[0]?.id ?? rowIndex}`}
+          >
+            {scrubberPlacement?.rowIndex === rowIndex ? (
+              <span
+                className="association-overview__scrubber"
+                aria-hidden="true"
+                style={{
+                  "--overview-scrubber-progress": `${scrubberPlacement.progress * 100}%`,
+                } as OverviewScrubberStyle}
+              />
+            ) : null}
+            {rowEntries.map((entry, index) => {
+              const eventStyle: OverviewEventStyle = {
+                "--overview-event-position": `${getOverviewEventPosition(index, rowEntries.length) * 100}%`,
+              };
 
-            return (
-              <button
-                className="association-overview__event"
-                key={entry.id}
-                style={eventStyle}
-                type="button"
-                onClick={() => onEntryOpen(entry)}
-              >
-                <span className="association-overview__dot" />
-                <strong>{entry.title}</strong>
-                <span>{formatEntryDateTime(entry)}</span>
-                <small>
-                  {(eventResponsibilities[entry.id] ?? []).join(", ")}
-                </small>
-              </button>
-            );
-          })}
-        </div>
+              return (
+                <button
+                  className="association-overview__event"
+                  key={entry.id}
+                  style={eventStyle}
+                  type="button"
+                  onClick={() => onEntryOpen(entry)}
+                >
+                  <span className="association-overview__dot" />
+                  <strong>{entry.title}</strong>
+                  <span>{formatEntryDateTime(entry)}</span>
+                  <small>
+                    {(eventResponsibilities[entry.id] ?? []).join(", ")}
+                  </small>
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
 
       <div className="association-overview__associations">
