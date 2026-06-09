@@ -51,7 +51,7 @@ export function TimelineShell({
 }: TimelineShellProps): JSX.Element {
   const [mainTimelineViewportWidth, setMainTimelineViewportWidth] = useState(0);
   const hasAssociationOverview = focus.kind === "person" || focus.kind === "item";
-  const shouldShowSecondary = false;
+  const shouldShowSecondary = hasAssociationOverview;
   const associationOverviewMinute =
     hasAssociationOverview && mainTimelineViewportWidth > 0
       ? scale.startMinute + (scrollLeft + mainTimelineViewportWidth / 2) / scale.pixelsPerMinute

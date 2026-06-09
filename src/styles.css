@@ -745,11 +745,32 @@ button {
   }
 
   .association-overview__event-track {
-    margin: 0 44px;
+    height: 122px;
+    margin: 0 34px;
   }
 
   .association-overview__event {
-    width: 92px;
+    width: min(110px, 30vw);
+  }
+
+  .association-overview__event strong,
+  .association-overview__event span,
+  .association-overview__event small {
+    white-space: normal;
+  }
+
+  .association-overview__event strong {
+    display: -webkit-box;
+    line-height: 1.15;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .association-overview__event span,
+  .association-overview__event small {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 
   .association-event-row {
