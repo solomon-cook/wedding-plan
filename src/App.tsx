@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, Plus, RotateCcw, Upload } from "lucide-react";
+import { CalendarRange, Download, ListChecks, Plus, RotateCcw, Upload } from "lucide-react";
 import { EntryForm } from "./components/EntryForm";
+import { JobsBoard } from "./components/JobsBoard";
 import { SearchBox } from "./components/SearchBox";
 import { TimelineShell } from "./components/TimelineShell";
 import {
@@ -29,6 +30,8 @@ type ActiveForm =
   | { mode: "create" }
   | { mode: "edit"; entryId: string };
 
+type ActivePage = "timeline" | "jobs";
+
 const INITIAL_CENTER_ENTRY_ID = "ceremony";
 
 function getInitialCenteredEntryId(entries: TimelineEntry[]): string | null {
@@ -55,6 +58,7 @@ function getInitialScrollLeft(entries: TimelineEntry[]): number {
 
 export function App(): JSX.Element {
   const [entries, setEntries] = useState<TimelineEntry[]>(() => loadTimelineEntries());
+  const [activePage, setActivePage] = useState<ActivePage>("timeline");
   const [associations, setAssociations] = useState<PersonItemAssociations>(() =>
     loadAssociations(entries),
   );
@@ -255,6 +259,12 @@ export function App(): JSX.Element {
     jumpToEntry(entry);
   }
 
+  function updateEntry(entry: TimelineEntry): void {
+    setEntries((currentEntries) =>
+      currentEntries.map((candidate) => (candidate.id === entry.id ? entry : candidate)),
+    );
+  }
+
   function deleteEntry(entryId: string): void {
     setEntries((currentEntries) =>
       currentEntries
@@ -339,6 +349,7 @@ export function App(): JSX.Element {
             type="button"
             title="Show main timeline"
             onClick={() => {
+              setActivePage("timeline");
               setFocus({ kind: "all" });
               setSelectedEntryId(null);
               setCenteredEntryId(getInitialCenteredEntryId(entries));
@@ -357,6 +368,29 @@ export function App(): JSX.Element {
 
         <div className="topbar__actions" aria-label="Timeline actions">
           {importMessage ? <span className="topbar__message">{importMessage}</span> : null}
+          <div className="topbar__view-toggle" aria-label="View">
+            <button
+              className={`icon-button ${activePage === "timeline" ? "icon-button--active" : ""}`}
+              type="button"
+              aria-label="Show timeline"
+              title="Timeline"
+              onClick={() => setActivePage("timeline")}
+            >
+              <CalendarRange size={18} />
+            </button>
+            <button
+              className={`icon-button ${activePage === "jobs" ? "icon-button--active" : ""}`}
+              type="button"
+              aria-label="Show jobs and events"
+              title="Jobs and events"
+              onClick={() => {
+                setActivePage("jobs");
+                setActiveForm(null);
+              }}
+            >
+              <ListChecks size={18} />
+            </button>
+          </div>
           <button
             className="icon-button"
             type="button"
@@ -409,32 +443,44 @@ export function App(): JSX.Element {
         </div>
       </header>
 
-      <TimelineShell
-        focusedEntries={focusedEntries}
-        focus={focus}
-        focusLabel={focusLabel}
-        associationCandidates={associationCandidates}
-        eventResponsibilities={eventResponsibilities}
-        ghostEntries={ghostEntries}
-        mainEntries={mainEntries}
-        scale={scale}
-        scrollLeft={scrollLeft}
-        centeredEntryId={centeredEntryId}
-        detailEntry={detailEntry}
-        selectedEntryId={selectedEntryId}
-        onEditSelected={() => {
-          if (detailEntry) {
-            setActiveForm({ mode: "edit", entryId: detailEntry.id });
-          }
-        }}
-        onEntryOpen={openEntry}
-        onFocusItem={focusItem}
-        onFocusPerson={focusPerson}
-        onCenteredEntryChange={updateCenteredEntry}
-        onEntryCenter={selectAndCenterEntry}
-        onFocusAssociationChange={updateFocusAssociation}
-        onScrollLeftChange={setScrollLeft}
-      />
+      {activePage === "jobs" ? (
+        <JobsBoard
+          entries={entries}
+          onEntryEdit={(entry) => {
+            setSelectedEntryId(entry.id);
+            setCenteredEntryId(entry.id);
+            setActiveForm({ mode: "edit", entryId: entry.id });
+          }}
+          onEntryUpdate={updateEntry}
+        />
+      ) : (
+        <TimelineShell
+          focusedEntries={focusedEntries}
+          focus={focus}
+          focusLabel={focusLabel}
+          associationCandidates={associationCandidates}
+          eventResponsibilities={eventResponsibilities}
+          ghostEntries={ghostEntries}
+          mainEntries={mainEntries}
+          scale={scale}
+          scrollLeft={scrollLeft}
+          centeredEntryId={centeredEntryId}
+          detailEntry={detailEntry}
+          selectedEntryId={selectedEntryId}
+          onEditSelected={() => {
+            if (detailEntry) {
+              setActiveForm({ mode: "edit", entryId: detailEntry.id });
+            }
+          }}
+          onEntryOpen={openEntry}
+          onFocusItem={focusItem}
+          onFocusPerson={focusPerson}
+          onCenteredEntryChange={updateCenteredEntry}
+          onEntryCenter={selectAndCenterEntry}
+          onFocusAssociationChange={updateFocusAssociation}
+          onScrollLeftChange={setScrollLeft}
+        />
+      )}
 
       {activeForm ? (
         <aside className="entry-drawer" aria-label={activeForm.mode === "create" ? "Add entry" : "Edit entry"}>
