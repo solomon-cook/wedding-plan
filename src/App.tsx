@@ -31,7 +31,7 @@ type ActiveForm =
 
 const INITIAL_CENTER_ENTRY_ID = "ceremony";
 
-function getInitialSelectedEntryId(entries: TimelineEntry[]): string | null {
+function getInitialCenteredEntryId(entries: TimelineEntry[]): string | null {
   return entries.some((entry) => entry.id === INITIAL_CENTER_ENTRY_ID)
     ? INITIAL_CENTER_ENTRY_ID
     : null;
@@ -59,8 +59,9 @@ export function App(): JSX.Element {
     loadAssociations(entries),
   );
   const [focus, setFocus] = useState<Focus>({ kind: "all" });
-  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(() =>
-    getInitialSelectedEntryId(entries),
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const [centeredEntryId, setCenteredEntryId] = useState<string | null>(() =>
+    getInitialCenteredEntryId(entries),
   );
   const [activeForm, setActiveForm] = useState<ActiveForm | null>(null);
   const [scrollLeft, setScrollLeft] = useState(() => getInitialScrollLeft(entries));
@@ -112,6 +113,10 @@ export function App(): JSX.Element {
   const selectedEntry = selectedEntryId
     ? entries.find((entry) => entry.id === selectedEntryId) ?? null
     : null;
+  const centeredEntry = centeredEntryId
+    ? entries.find((entry) => entry.id === centeredEntryId) ?? null
+    : null;
+  const detailEntry = centeredEntry ?? selectedEntry;
   const editingEntry =
     activeForm?.mode === "edit"
       ? entries.find((entry) => entry.id === activeForm.entryId) ?? null
@@ -128,18 +133,20 @@ export function App(): JSX.Element {
 
   function openEntry(entry: TimelineEntry): void {
     setSelectedEntryId(entry.id);
+    setCenteredEntryId(entry.id);
     setFocus({ kind: "entry", entryId: entry.id });
     setActiveForm(null);
   }
 
-  function selectCenteredEntry(entry: TimelineEntry): void {
-    setSelectedEntryId((currentEntryId) => (
+  function updateCenteredEntry(entry: TimelineEntry): void {
+    setCenteredEntryId((currentEntryId) => (
       currentEntryId === entry.id ? currentEntryId : entry.id
     ));
   }
 
   function selectAndCenterEntry(entry: TimelineEntry): void {
-    selectCenteredEntry(entry);
+    setSelectedEntryId(entry.id);
+    updateCenteredEntry(entry);
     jumpToEntry(entry);
   }
 
@@ -222,6 +229,7 @@ export function App(): JSX.Element {
     }
 
     setSelectedEntryId(entry.id);
+    setCenteredEntryId(entry.id);
     setFocus({ kind: "entry", entryId: entry.id });
     setActiveForm(null);
     jumpToEntry(entry);
@@ -241,6 +249,7 @@ export function App(): JSX.Element {
         : [...currentEntries, entry];
     });
     setSelectedEntryId(entry.id);
+    setCenteredEntryId(entry.id);
     setFocus({ kind: "entry", entryId: entry.id });
     setActiveForm(null);
     jumpToEntry(entry);
@@ -256,6 +265,7 @@ export function App(): JSX.Element {
         })),
     );
     setSelectedEntryId(null);
+    setCenteredEntryId((currentEntryId) => (currentEntryId === entryId ? null : currentEntryId));
     setFocus({ kind: "all" });
     setActiveForm(null);
   }
@@ -266,7 +276,8 @@ export function App(): JSX.Element {
     setEntries(resetEntries);
     setAssociations(resetAssociations);
     setFocus({ kind: "all" });
-    setSelectedEntryId(getInitialSelectedEntryId(resetEntries));
+    setSelectedEntryId(null);
+    setCenteredEntryId(getInitialCenteredEntryId(resetEntries));
     setActiveForm(null);
     setScrollLeft(getInitialScrollLeft(resetEntries));
     setImportMessage("Reset to seed data");
@@ -301,6 +312,7 @@ export function App(): JSX.Element {
       setAssociations(createAssociationsFromEntries(imported));
       setFocus({ kind: "all" });
       setSelectedEntryId(null);
+      setCenteredEntryId(null);
       setActiveForm(null);
       setScrollLeft(0);
       setImportMessage(`Imported ${imported.length} entries`);
@@ -329,6 +341,7 @@ export function App(): JSX.Element {
             onClick={() => {
               setFocus({ kind: "all" });
               setSelectedEntryId(null);
+              setCenteredEntryId(getInitialCenteredEntryId(entries));
               setActiveForm(null);
             }}
           >
@@ -351,6 +364,7 @@ export function App(): JSX.Element {
             title="Add entry"
             onClick={() => {
               setSelectedEntryId(null);
+              setCenteredEntryId(null);
               setActiveForm({ mode: "create" });
             }}
           >
@@ -405,16 +419,18 @@ export function App(): JSX.Element {
         mainEntries={mainEntries}
         scale={scale}
         scrollLeft={scrollLeft}
-        selectedEntry={selectedEntry}
+        centeredEntryId={centeredEntryId}
+        detailEntry={detailEntry}
+        selectedEntryId={selectedEntryId}
         onEditSelected={() => {
-          if (selectedEntry) {
-            setActiveForm({ mode: "edit", entryId: selectedEntry.id });
+          if (detailEntry) {
+            setActiveForm({ mode: "edit", entryId: detailEntry.id });
           }
         }}
         onEntryOpen={openEntry}
         onFocusItem={focusItem}
         onFocusPerson={focusPerson}
-        onCenteredEntryChange={selectCenteredEntry}
+        onCenteredEntryChange={updateCenteredEntry}
         onEntryCenter={selectAndCenterEntry}
         onFocusAssociationChange={updateFocusAssociation}
         onScrollLeftChange={setScrollLeft}

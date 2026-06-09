@@ -16,6 +16,7 @@ type TimelineProps = {
   ghostEntries?: TimelineEntry[];
   scale: TimelineScale;
   scrollLeft: number;
+  centeredEntryId: string | null;
   selectedEntryId: string | null;
   title: string;
   variant: "main" | "secondary";
@@ -41,6 +42,7 @@ export function Timeline({
   ghostEntries = [],
   scale,
   scrollLeft,
+  centeredEntryId,
   selectedEntryId,
   title,
   variant,
@@ -50,13 +52,16 @@ export function Timeline({
   onViewportWidthChange,
 }: TimelineProps): JSX.Element {
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const applyingScrollRef = useRef(false);
   const [hoveredEntryId, setHoveredEntryId] = useState<string | null>(null);
   const [viewportWidth, setViewportWidth] = useState(0);
   const positionedEntries = useMemo(() => getPositionedEntries(entries, scale), [entries, scale]);
   const positionedGhostEntries = useMemo(
     () => getPositionedEntries(ghostEntries, scale),
     [ghostEntries, scale],
+  );
+  const positionedLabelEntries = useMemo(
+    () => [...positionedEntries, ...positionedGhostEntries],
+    [positionedEntries, positionedGhostEntries],
   );
   const rowCount = Math.max(
     getTimelineRowCount(positionedEntries),
@@ -82,11 +87,11 @@ export function Timeline({
   const labelVisibility = useMemo(() => {
     const visibleEntryIds = new Set<string>();
 
-    if (positionedEntries.length === 0) {
+    if (positionedLabelEntries.length === 0) {
       return visibleEntryIds;
     }
 
-    const labelBounds = positionedEntries
+    const labelBounds = positionedLabelEntries
       .map((positionedEntry) => {
         const distance = Math.abs(positionedEntry.left - viewportCenter);
         const influence = Math.max(160, (viewportWidth || 1) * 0.34);
@@ -152,7 +157,7 @@ export function Timeline({
     commitGroup(currentGroup);
 
     return visibleEntryIds;
-  }, [hoveredEntryId, positionedEntries, viewportCenter, viewportWidth]);
+  }, [hoveredEntryId, positionedLabelEntries, viewportCenter, viewportWidth]);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -161,14 +166,7 @@ export function Timeline({
       return undefined;
     }
 
-    applyingScrollRef.current = true;
     element.scrollLeft = scrollLeft;
-
-    const frame = window.requestAnimationFrame(() => {
-      applyingScrollRef.current = false;
-    });
-
-    return () => window.cancelAnimationFrame(frame);
   }, [scrollLeft]);
 
   useEffect(() => {
@@ -214,25 +212,33 @@ export function Timeline({
       return candidateDistance < closestDistance ? candidate : closest;
     });
 
-    if (centeredEntry.entry.id !== selectedEntryId) {
+    if (centeredEntry.entry.id !== centeredEntryId) {
       onCenteredEntryChange(centeredEntry.entry);
     }
   }, [
+    centeredEntryId,
     onCenteredEntryChange,
     positionedEntries,
     positionedGhostEntries,
     scrollLeft,
-    selectedEntryId,
     viewportWidth,
   ]);
 
-  function handleScroll(event: React.UIEvent<HTMLDivElement>): void {
-    if (applyingScrollRef.current) {
-      return;
+  useEffect(() => {
+    const element = scrollRef.current;
+
+    if (!element) {
+      return undefined;
     }
 
-    onScrollLeftChange(event.currentTarget.scrollLeft);
-  }
+    function handleNativeScroll(): void {
+      onScrollLeftChange(element?.scrollLeft ?? 0);
+    }
+
+    element.addEventListener("scroll", handleNativeScroll, { passive: true });
+
+    return () => element.removeEventListener("scroll", handleNativeScroll);
+  }, [onScrollLeftChange]);
 
   function getLabelEmphasis(entryLeft: number): number {
     const effectiveViewportWidth = viewportWidth || 1;
@@ -259,7 +265,6 @@ export function Timeline({
       <div
         className="timeline-scroll"
         ref={scrollRef}
-        onScroll={handleScroll}
       >
         <div
           className="timeline-canvas"
@@ -287,7 +292,7 @@ export function Timeline({
               centerY={centerY}
               positionedEntry={positionedEntry}
               labelEmphasis={getLabelEmphasis(positionedEntry.left)}
-              showLabel={false}
+              showLabel={labelVisibility.has(positionedEntry.entry.id)}
               timelineWidth={width}
               onEntryOpen={(entry) => {
                 onEntryOpen(entry);

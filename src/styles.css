@@ -783,8 +783,7 @@ button {
 }
 
 .timeline-entry--ghost .timeline-entry__label {
-  opacity: 0;
-  transform: translateX(-50%) scale(0.45);
+  color: rgba(33, 31, 27, calc(0.32 + (var(--label-emphasis) - 0.52) * 0.34));
 }
 
 .timeline-entry--label-hidden .timeline-entry__label {

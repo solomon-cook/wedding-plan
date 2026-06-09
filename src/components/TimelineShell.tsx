@@ -14,7 +14,9 @@ type TimelineShellProps = {
   mainEntries: TimelineEntry[];
   scale: TimelineScale;
   scrollLeft: number;
-  selectedEntry: TimelineEntry | null;
+  centeredEntryId: string | null;
+  detailEntry: TimelineEntry | null;
+  selectedEntryId: string | null;
   onEditSelected: () => void;
   onEntryOpen: (entry: TimelineEntry) => void;
   onFocusItem: (item: string) => void;
@@ -35,7 +37,9 @@ export function TimelineShell({
   mainEntries,
   scale,
   scrollLeft,
-  selectedEntry,
+  centeredEntryId,
+  detailEntry,
+  selectedEntryId,
   onEditSelected,
   onEntryOpen,
   onFocusItem,
@@ -47,10 +51,7 @@ export function TimelineShell({
 }: TimelineShellProps): JSX.Element {
   const [mainTimelineViewportWidth, setMainTimelineViewportWidth] = useState(0);
   const hasAssociationOverview = focus.kind === "person" || focus.kind === "item";
-  const shouldShowSecondary =
-    hasAssociationOverview ||
-    focus.kind === "search" ||
-    (focus.kind === "entry" && focusedEntries.length > 0);
+  const shouldShowSecondary = false;
   const associationOverviewMinute =
     hasAssociationOverview && mainTimelineViewportWidth > 0
       ? scale.startMinute + (scrollLeft + mainTimelineViewportWidth / 2) / scale.pixelsPerMinute
@@ -58,34 +59,34 @@ export function TimelineShell({
 
   return (
     <main className="workspace">
-      <div className={`timeline-detail ${selectedEntry ? "" : "timeline-detail--empty"}`} aria-live="polite">
-        {selectedEntry ? (
+      <div className={`timeline-detail ${detailEntry ? "" : "timeline-detail--empty"}`} aria-live="polite">
+        {detailEntry ? (
           <>
-            <strong>{selectedEntry.title}</strong>
+            <strong>{detailEntry.title}</strong>
             <span>
-              {formatEntryDate(selectedEntry)} ·{" "}
-              {selectedEntry.startTime}
-              {selectedEntry.endTime ? `-${selectedEntry.endTime}` : ""}
-              {selectedEntry.location ? ` · ${selectedEntry.location}` : ""}
+              {formatEntryDate(detailEntry)} ·{" "}
+              {detailEntry.startTime}
+              {detailEntry.endTime ? `-${detailEntry.endTime}` : ""}
+              {detailEntry.location ? ` · ${detailEntry.location}` : ""}
             </span>
-            {selectedEntry.description ? (
-              <p>{selectedEntry.description}</p>
+            {detailEntry.description ? (
+              <p>{detailEntry.description}</p>
             ) : null}
-            <div className="timeline-detail__links" aria-label={`${selectedEntry.title} details`}>
-              {selectedEntry.people.map((person) => (
+            <div className="timeline-detail__links" aria-label={`${detailEntry.title} details`}>
+              {detailEntry.people.map((person) => (
                 <button
                   className="detail-link"
-                  key={`${selectedEntry.id}-person-${person}`}
+                  key={`${detailEntry.id}-person-${person}`}
                   type="button"
                   onClick={() => onFocusPerson(person)}
                 >
                   {person}
                 </button>
               ))}
-              {selectedEntry.items.map((item) => (
+              {detailEntry.items.map((item) => (
                 <button
                   className="detail-link"
-                  key={`${selectedEntry.id}-item-${item}`}
+                  key={`${detailEntry.id}-item-${item}`}
                   type="button"
                   onClick={() => onFocusItem(item)}
                 >
@@ -107,7 +108,8 @@ export function TimelineShell({
         variant="main"
         scale={scale}
         scrollLeft={scrollLeft}
-        selectedEntryId={selectedEntry?.id ?? null}
+        centeredEntryId={centeredEntryId}
+        selectedEntryId={selectedEntryId}
         title="Main timeline"
         onEntryOpen={onEntryOpen}
         onCenteredEntryChange={onCenteredEntryChange}
@@ -139,7 +141,8 @@ export function TimelineShell({
               variant="secondary"
               scale={scale}
               scrollLeft={scrollLeft}
-              selectedEntryId={selectedEntry?.id ?? null}
+              centeredEntryId={centeredEntryId}
+              selectedEntryId={selectedEntryId}
               title="Secondary timeline"
               onEntryOpen={onEntryCenter}
               onScrollLeftChange={onScrollLeftChange}
