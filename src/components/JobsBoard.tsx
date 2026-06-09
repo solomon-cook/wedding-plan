@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type KeyboardEvent } from "react";
 import { Edit3 } from "lucide-react";
 import { formatEntryDate } from "../lib/timeScale";
 import type { PersonItemAssociations, TimelineEntry } from "../types/timeline";
@@ -6,8 +6,10 @@ import type { PersonItemAssociations, TimelineEntry } from "../types/timeline";
 type JobsBoardProps = {
   associations: PersonItemAssociations;
   entries: TimelineEntry[];
+  onAssociationsUpdate: (associations: PersonItemAssociations) => void;
   onEntryEdit: (entry: TimelineEntry) => void;
   onEntryUpdate: (entry: TimelineEntry) => void;
+  onEntriesUpdate: (entries: TimelineEntry[]) => void;
 };
 
 type JobsView = "events" | "items" | "people";
@@ -53,6 +55,16 @@ function compareEntries(first: TimelineEntry, second: TimelineEntry): number {
 
 function sortStrings(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+function normaliseLabel(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function handleCommitKey(event: KeyboardEvent<HTMLInputElement>): void {
+  if (event.key === "Enter") {
+    event.currentTarget.blur();
+  }
 }
 
 function getResponsiblePeopleForEntryItem(
@@ -101,6 +113,7 @@ function getPersonResponsibilities(
   associations: PersonItemAssociations,
 ): PersonResponsibility[] {
   const responsibilities = new Map<string, PersonResponsibility>();
+  const entryTitles = new Set(entries.map((entry) => normaliseLabel(entry.title)));
 
   entries.forEach((entry) => {
     const people = new Set(entry.people);
@@ -109,8 +122,10 @@ function getPersonResponsibilities(
     });
 
     people.forEach((person) => {
-      const itemsForPerson = entry.items.filter((item) =>
-        getResponsiblePeopleForEntryItem(associations, entry, item).includes(person),
+      const itemsForPerson = entry.items.filter(
+        (item) =>
+          !entryTitles.has(normaliseLabel(item)) &&
+          getResponsiblePeopleForEntryItem(associations, entry, item).includes(person),
       );
       const existing = responsibilities.get(person) ?? {
         person,
@@ -131,8 +146,10 @@ function getPersonResponsibilities(
 export function JobsBoard({
   associations,
   entries,
+  onAssociationsUpdate,
   onEntryEdit,
   onEntryUpdate,
+  onEntriesUpdate,
 }: JobsBoardProps): JSX.Element {
   const [view, setView] = useState<JobsView>("events");
   const sortedEntries = useMemo(() => [...entries].sort(compareEntries), [entries]);
@@ -144,6 +161,93 @@ export function JobsBoard({
     () => getPersonResponsibilities(entries, associations),
     [associations, entries],
   );
+
+  function renameItem(currentItem: string, nextValue: string): void {
+    const nextItem = nextValue.trim();
+
+    if (!nextItem || nextItem === currentItem) {
+      return;
+    }
+
+    onEntriesUpdate(
+      entries.map((entry) => ({
+        ...entry,
+        items: sortStrings(entry.items.map((item) => (item === currentItem ? nextItem : item))),
+      })),
+    );
+
+    onAssociationsUpdate({
+      eventItemPeople: Object.fromEntries(
+        Object.entries(associations.eventItemPeople).map(([entryId, itemPeople]) => {
+          const nextItemPeople: Record<string, string[]> = {};
+
+          Object.entries(itemPeople).forEach(([item, people]) => {
+            const itemName = item === currentItem ? nextItem : item;
+            nextItemPeople[itemName] = sortStrings([...(nextItemPeople[itemName] ?? []), ...people]);
+          });
+
+          return [entryId, nextItemPeople];
+        }),
+      ),
+    });
+  }
+
+  function updateItemPeople(item: string, nextValue: string): void {
+    const nextPeople = sortStrings(splitList(nextValue));
+
+    onAssociationsUpdate({
+      eventItemPeople: Object.fromEntries(
+        Object.entries(associations.eventItemPeople).map(([entryId, itemPeople]) => {
+          const entry = entries.find((candidate) => candidate.id === entryId);
+
+          if (!entry?.items.includes(item)) {
+            return [entryId, itemPeople];
+          }
+
+          return [
+            entryId,
+            {
+              ...itemPeople,
+              [item]: nextPeople,
+            },
+          ];
+        }),
+      ),
+    });
+  }
+
+  function renamePerson(currentPerson: string, nextValue: string): void {
+    const nextPerson = nextValue.trim();
+
+    if (!nextPerson || nextPerson === currentPerson) {
+      return;
+    }
+
+    onEntriesUpdate(
+      entries.map((entry) => ({
+        ...entry,
+        people: sortStrings(
+          entry.people.map((person) => (person === currentPerson ? nextPerson : person)),
+        ),
+      })),
+    );
+
+    onAssociationsUpdate({
+      eventItemPeople: Object.fromEntries(
+        Object.entries(associations.eventItemPeople).map(([entryId, itemPeople]) => [
+          entryId,
+          Object.fromEntries(
+            Object.entries(itemPeople).map(([item, people]) => [
+              item,
+              sortStrings(
+                people.map((person) => (person === currentPerson ? nextPerson : person)),
+              ),
+            ]),
+          ),
+        ]),
+      ),
+    });
+  }
 
   return (
     <main className="jobs-workspace">
@@ -279,8 +383,31 @@ export function JobsBoard({
             {itemResponsibilities.map((responsibility) => (
               <article className="summary-row" key={responsibility.item}>
                 <div className="summary-row__primary">
-                  <strong>{responsibility.item}</strong>
-                  <span>{responsibility.people.length > 0 ? joinList(responsibility.people) : "No person assigned"}</span>
+                  <label className="summary-field">
+                    <span>Item</span>
+                    <input
+                      aria-label={`Rename item ${responsibility.item}`}
+                      defaultValue={responsibility.item}
+                      type="text"
+                      onBlur={(event) => renameItem(responsibility.item, event.currentTarget.value)}
+                      onKeyDown={handleCommitKey}
+                    />
+                  </label>
+                  <label className="summary-field">
+                    <span>People</span>
+                    <input
+                      aria-label={`People responsible for ${responsibility.item}`}
+                      defaultValue={
+                        responsibility.people.length > 0 ? joinList(responsibility.people) : ""
+                      }
+                      placeholder="No person assigned"
+                      type="text"
+                      onBlur={(event) =>
+                        updateItemPeople(responsibility.item, event.currentTarget.value)
+                      }
+                      onKeyDown={handleCommitKey}
+                    />
+                  </label>
                 </div>
                 <div className="summary-row__meta">
                   <span>Before wedding: {joinList(responsibility.locations)}</span>
@@ -301,7 +428,18 @@ export function JobsBoard({
             {personResponsibilities.map((responsibility) => (
               <article className="summary-row" key={responsibility.person}>
                 <div className="summary-row__primary">
-                  <strong>{responsibility.person}</strong>
+                  <label className="summary-field">
+                    <span>Person</span>
+                    <input
+                      aria-label={`Rename person ${responsibility.person}`}
+                      defaultValue={responsibility.person}
+                      type="text"
+                      onBlur={(event) =>
+                        renamePerson(responsibility.person, event.currentTarget.value)
+                      }
+                      onKeyDown={handleCommitKey}
+                    />
+                  </label>
                   <span>
                     {responsibility.entries.length}{" "}
                     {responsibility.entries.length === 1 ? "job or event" : "jobs and events"}

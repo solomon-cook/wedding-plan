@@ -447,12 +447,14 @@ export function App(): JSX.Element {
         <JobsBoard
           associations={associations}
           entries={entries}
+          onAssociationsUpdate={setAssociations}
           onEntryEdit={(entry) => {
             setSelectedEntryId(entry.id);
             setCenteredEntryId(entry.id);
             setActiveForm({ mode: "edit", entryId: entry.id });
           }}
           onEntryUpdate={updateEntry}
+          onEntriesUpdate={setEntries}
         />
       ) : (
         <TimelineShell

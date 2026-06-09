@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model TimelineEntry {
+  id              String   @id
+  title           String
+  type            String
+  date            String?
+  startTime       String
+  endTime         String?
+  durationMinutes Int?
+  location        String?
+  description     String?
+  timelineRole    String?
+  parentEntryId   String?
+  status          String?
+  color           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  parent           TimelineEntry?         @relation("EntryChildren", fields: [parentEntryId], references: [id], onDelete: SetNull)
+  children         TimelineEntry[]        @relation("EntryChildren")
+  people           TimelineEntryPerson[]
+  items            TimelineEntryItem[]
+  relatedFrom      RelatedTimelineEntry[] @relation("RelatedFrom")
+  relatedTo        RelatedTimelineEntry[] @relation("RelatedTo")
+  responsibilities EntryResponsibility[]
+
+  @@index([date, startTime])
+  @@index([type])
+  @@index([timelineRole])
+  @@index([parentEntryId])
+}
+
+model Person {
+  id               Int                   @id @default(autoincrement())
+  name             String                @unique
+  entries          TimelineEntryPerson[]
+  responsibilities EntryResponsibility[]
+}
+
+model Item {
+  id               Int                   @id @default(autoincrement())
+  name             String                @unique
+  entries          TimelineEntryItem[]
+  responsibilities EntryResponsibility[]
+}
+
+model TimelineEntryPerson {
+  entryId  String
+  personId Int
+  order    Int
+
+  entry  TimelineEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  person Person        @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@id([entryId, personId])
+  @@index([personId])
+}
+
+model TimelineEntryItem {
+  entryId String
+  itemId  Int
+  order   Int
+
+  entry TimelineEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  item  Item          @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@id([entryId, itemId])
+  @@index([itemId])
+}
+
+model RelatedTimelineEntry {
+  fromEntryId String
+  toEntryId   String
+  order       Int
+
+  fromEntry TimelineEntry @relation("RelatedFrom", fields: [fromEntryId], references: [id], onDelete: Cascade)
+  toEntry   TimelineEntry @relation("RelatedTo", fields: [toEntryId], references: [id], onDelete: Cascade)
+
+  @@id([fromEntryId, toEntryId])
+  @@index([toEntryId])
+}
+
+model EntryResponsibility {
+  entryId  String
+  itemId   Int
+  personId Int
+
+  entry  TimelineEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  item   Item          @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  person Person        @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@id([entryId, itemId, personId])
+  @@index([itemId])
+  @@index([personId])
+}
